@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:isolate_manager/isolate_manager.dart';
 
@@ -277,3 +278,6 @@ String concat(List<String> params) {
 List<List<String>> complexReturn(List<List<String>> params) {
   return params;
 }
+
+@isolateManagerWorker
+Uint8List identityBytes(Uint8List data) => data;
