@@ -4,57 +4,111 @@
 @TestOn('vm')
 library;
 
+import 'dart:isolate';
 import 'dart:typed_data';
 
 import 'package:isolate_manager/isolate_manager.dart';
 import 'package:test/test.dart';
 
+import 'benchmark_helpers.dart';
 import 'functions.dart';
+
+// Worker that accepts a Map containing a pre-built TransferableTypedData
+// and echoes back the materialized bytes. Used to benchmark the minimum
+// possible channel cost when the caller has already done the fromList() copy.
+@pragma('vm:entry-point')
+void _ttdEchoWorker(dynamic params) {
+  final controller =
+      IsolateManagerController<Uint8List, Map<String, Object?>>(params);
+  controller.onIsolateMessage.listen((message) {
+    final packet = message['packet']! as TransferableTypedData;
+    controller.sendResult(Uint8List.view(packet.materialize()));
+  });
+  controller.initialized();
+}
 
 void main() {
   group('Transfer Performance (VM)', () {
     late IsolateManager<Uint8List, Uint8List> manager;
+    late IsolateManager<Uint8List, Map<String, Object?>> ttdManager;
 
-    setUp(() async {
+    setUpAll(() async {
       manager = IsolateManager.create(identityBytes);
+      ttdManager = IsolateManager.createCustom(_ttdEchoWorker);
       await manager.start();
+      await ttdManager.start();
     });
 
-    tearDown(() async {
+    tearDownAll(() async {
       await manager.stop();
+      await ttdManager.stop();
     });
 
-    for (final sizeKB in [1, 100, 1024, 10240]) {
-      test('round-trip ${sizeKB}KB with transferables', () async {
-        final data = Uint8List(sizeKB * 1024);
-        for (var i = 0; i < data.length; i++) {
-          data[i] = i % 256;
-        }
+    for (final sizeKb in benchmarkSizesKb) {
+      test('transport benchmark ${sizeKb}KB', () async {
+        final config = benchmarkConfigForSize(sizeKb);
+        final bytesLength = sizeKb * 1024;
 
-        final sw = Stopwatch()..start();
-        final result = await manager.compute(
-          data,
-          transferables: [data.buffer],
+        final transportDataWithTransfer = List<Uint8List>.generate(
+          config.totalRuns,
+          (_) => buildBytes(bytesLength),
         );
-        sw.stop();
+        final transportDataWithoutTransfer = List<Uint8List>.generate(
+          config.totalRuns,
+          (_) => buildBytes(bytesLength),
+        );
+        final packets = List<TransferableTypedData>.generate(
+          config.totalRuns,
+          (_) => TransferableTypedData.fromList([buildBytes(bytesLength)]),
+        );
 
-        expect(result.length, data.length);
-        print('  ${sizeKB}KB with transferables: ${sw.elapsedMilliseconds}ms');
-      });
+        final transportWithByteBuffer = await runBenchmarkCase(
+          warmups: config.warmups,
+          runs: config.runs,
+          body: (index) async {
+            final data = transportDataWithTransfer[index];
+            final result = await manager.compute(
+              data,
+              transferables: <Object>[data.buffer],
+            );
+            expect(result.length, bytesLength);
+          },
+        );
 
-      test('round-trip ${sizeKB}KB without transferables', () async {
-        final data = Uint8List(sizeKB * 1024);
-        for (var i = 0; i < data.length; i++) {
-          data[i] = i % 256;
-        }
+        final transportWithoutTransferables = await runBenchmarkCase(
+          warmups: config.warmups,
+          runs: config.runs,
+          body: (index) async {
+            final data = transportDataWithoutTransfer[index];
+            final result = await manager.compute(data);
+            expect(result.length, bytesLength);
+          },
+        );
 
-        final sw = Stopwatch()..start();
-        final result = await manager.compute(data);
-        sw.stop();
+        final transportWithPrebuiltTtd = await runBenchmarkCase(
+          warmups: config.warmups,
+          runs: config.runs,
+          body: (index) async {
+            final packet = packets[index];
+            final result = await ttdManager.compute(
+              <String, Object?>{'packet': packet},
+              transferables: <Object>[packet],
+            );
+            expect(result.length, bytesLength);
+          },
+        );
 
-        expect(result.length, data.length);
+        print('');
+        print('  ${sizeKb}KB (warmup=${config.warmups}, runs=${config.runs})');
         print(
-          '  ${sizeKB}KB without transferables: ${sw.elapsedMilliseconds}ms',
+          '    transport_with_ByteBuffer: ${formatMs(transportWithByteBuffer)}',
+        );
+        print(
+          '    transport_without_transferables: '
+          '${formatMs(transportWithoutTransferables)}',
+        );
+        print(
+          '    transport_with_prebuilt_TTD: ${formatMs(transportWithPrebuiltTtd)}',
         );
       });
     }

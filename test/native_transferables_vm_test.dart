@@ -1,6 +1,7 @@
 @TestOn('vm')
 library;
 
+import 'dart:isolate';
 import 'dart:typed_data';
 
 import 'package:isolate_manager/isolate_manager.dart';
@@ -28,6 +29,23 @@ void transferResultWorker(dynamic params) {
       <String, Object?>{'processed': processed},
       transferables: <Object>[processed.buffer],
     );
+  });
+
+  controller.initialized();
+}
+
+@pragma('vm:entry-point')
+void transferablePacketWorker(dynamic params) {
+  final controller =
+      IsolateManagerController<Map<String, Object?>, Map<String, Object?>>(
+        params,
+      );
+
+  controller.onIsolateMessage.listen((message) {
+    final packet = message['packet'] as TransferableTypedData?;
+    if (packet == null) return;
+    final bytes = Uint8List.view(packet.materialize());
+    controller.sendResult(<String, Object?>{'sum': bytes.reduce((a, b) => a + b)});
   });
 
   controller.initialized();
@@ -86,6 +104,26 @@ void main() {
 
       expect(processed, isNotNull);
       expect(processed, orderedEquals(<int>[2, 3, 4, 251]));
+
+      await manager.stop();
+    });
+
+    test('main to worker supports TransferableTypedData in transferables', () async {
+      final manager =
+          IsolateManager<Map<String, Object?>, Map<String, Object?>>
+              .createCustom(transferablePacketWorker);
+      await manager.start();
+
+      final packet = TransferableTypedData.fromList([
+        Uint8List.fromList(<int>[1, 2, 3, 4]),
+      ]);
+
+      final result = await manager.compute(
+        <String, Object?>{'packet': packet},
+        transferables: <Object>[packet],
+      );
+
+      expect(result['sum'], 10);
 
       await manager.stop();
     });

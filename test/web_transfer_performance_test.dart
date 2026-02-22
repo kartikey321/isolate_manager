@@ -9,6 +9,7 @@ import 'dart:typed_data';
 import 'package:isolate_manager/isolate_manager.dart';
 import 'package:test/test.dart';
 
+import 'benchmark_helpers.dart';
 import 'functions.dart';
 
 const bool _isWasm = bool.fromEnvironment('dart.tool.dart2wasm');
@@ -31,68 +32,83 @@ void main() {
       await manager.stop();
     });
 
-    for (final sizeKB in [1, 100, 1024, 10240]) {
-      test('round-trip ${sizeKB}KB with transferables (zero-copy)', () async {
-        final data = Uint8List(sizeKB * 1024);
-        for (var i = 0; i < data.length; i++) {
-          data[i] = i % 256;
-        }
+    for (final sizeKb in benchmarkSizesKb) {
+      test('transport benchmark ${sizeKb}KB', () async {
+        final config = benchmarkConfigForSize(sizeKb);
+        final bytesLength = sizeKb * 1024;
 
-        final originalLength = data.buffer.lengthInBytes;
-
-        final sw = Stopwatch()..start();
-        final result = await manager.compute(
-          data,
-          transferables: [data.buffer],
+        final transportDataWithTransfer = List<Uint8List>.generate(
+          config.totalRuns,
+          (_) => buildBytes(bytesLength),
         );
-        sw.stop();
+        final transportDataWithoutTransfer = List<Uint8List>.generate(
+          config.totalRuns,
+          (_) => buildBytes(bytesLength),
+        );
 
-        expect(result.length, originalLength);
+        final transportWith = await runBenchmarkCase(
+          warmups: config.warmups,
+          runs: config.runs,
+          body: (index) async {
+            final data = transportDataWithTransfer[index];
+            final originalLength = data.buffer.lengthInBytes;
+            final result = await manager.compute(
+              data,
+              transferables: <Object>[data.buffer],
+            );
+            expect(result.length, bytesLength);
+            _expectTransferState(
+              data: data,
+              originalLength: originalLength,
+              expectDetached: !_isWasm,
+            );
+          },
+        );
 
-        if (_isWasm) {
-          expect(
-            data.buffer.lengthInBytes,
-            originalLength,
-            reason:
-                'WASM currently does not detach the source buffer after transfer list send.',
-          );
-        } else {
-          // After transfer, the source buffer should be detached (zero-length)
-          expect(
-            data.buffer.lengthInBytes,
-            0,
-            reason: 'Source buffer should be detached after zero-copy transfer',
-          );
-        }
+        final transportWithout = await runBenchmarkCase(
+          warmups: config.warmups,
+          runs: config.runs,
+          body: (index) async {
+            final data = transportDataWithoutTransfer[index];
+            final result = await manager.compute(data);
+            expect(result.length, bytesLength);
+            expect(data.buffer.lengthInBytes, bytesLength);
+          },
+        );
 
+        print('');
         print(
-          '  ${sizeKB}KB with transferables: ${sw.elapsedMilliseconds}ms',
+          '  ${sizeKb}KB (warmup=${config.warmups}, runs=${config.runs})',
         );
-      });
-
-      test('round-trip ${sizeKB}KB without transferables (copy)', () async {
-        final data = Uint8List(sizeKB * 1024);
-        for (var i = 0; i < data.length; i++) {
-          data[i] = i % 256;
-        }
-
-        final sw = Stopwatch()..start();
-        final result = await manager.compute(data);
-        sw.stop();
-
-        expect(result.length, data.length);
-
-        // Without transferables, source buffer remains intact
-        expect(
-          data.buffer.lengthInBytes,
-          sizeKB * 1024,
-          reason: 'Source buffer should remain intact without transferables',
-        );
-
         print(
-          '  ${sizeKB}KB without transferables: ${sw.elapsedMilliseconds}ms',
+          '    transport_with_prebuilt_transferables: '
+          '${formatMs(transportWith)}',
+        );
+        print(
+          '    transport_without_prebuilt_transferables: ${formatMs(transportWithout)}',
         );
       });
     }
   });
+}
+
+void _expectTransferState({
+  required Uint8List data,
+  required int originalLength,
+  required bool expectDetached,
+}) {
+  if (expectDetached) {
+    expect(
+      data.buffer.lengthInBytes,
+      0,
+      reason: 'Source buffer should be detached after transfer list send.',
+    );
+  } else {
+    expect(
+      data.buffer.lengthInBytes,
+      originalLength,
+      reason:
+          'WASM currently does not detach the source buffer after transfer list send.',
+    );
+  }
 }

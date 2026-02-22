@@ -1,6 +1,7 @@
 @TestOn('browser')
 library;
 
+import 'dart:js_interop';
 import 'dart:math';
 import 'dart:typed_data';
 
@@ -107,6 +108,28 @@ void main() {
 
       // This simulates what our extractArrayBuffers does
       expect(buffer, isA<ByteBuffer>());
+    });
+
+    test('should accept JSArrayBuffer in transferables list', () async {
+      final manager = IsolateManager.create(
+        processBytes,
+        workerName: 'workers/processBytes',
+      );
+
+      await manager.start();
+
+      final data = Uint8List(2048);
+      for (var i = 0; i < data.length; i++) {
+        data[i] = i % 256;
+      }
+
+      final result = await manager.compute(
+        data,
+        transferables: <Object>[data.buffer.toJS],
+      );
+
+      expect(result.length, data.length);
+      await manager.stop();
     });
   });
 }

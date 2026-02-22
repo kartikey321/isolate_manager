@@ -1,6 +1,7 @@
 @TestOn('vm')
 library;
 
+import 'dart:isolate';
 import 'dart:typed_data';
 
 import 'package:isolate_manager/src/utils/native_transferable_codec.dart';
@@ -44,6 +45,26 @@ void main() {
         transferables: <Object>[other.buffer],
       );
       expect(identical(encoded, payload), isTrue);
+    });
+
+    test('supports TransferableTypedData in transferables list', () {
+      final packet = TransferableTypedData.fromList([
+        Uint8List.fromList(<int>[7, 8, 9]),
+      ]);
+      final payload = <String, Object?>{'packet': packet};
+
+      final encoded = encodeNativeTransferPayload(
+        payload,
+        transferables: <Object>[packet],
+      );
+      final decoded = decodeNativeTransferPayload(encoded) as Map<Object?, Object?>;
+
+      final decodedPacket = decoded['packet'] as TransferableTypedData?;
+      expect(decodedPacket, isNotNull);
+      expect(
+        Uint8List.view(decodedPacket!.materialize()),
+        orderedEquals(<int>[7, 8, 9]),
+      );
     });
   });
 }

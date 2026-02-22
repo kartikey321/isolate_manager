@@ -20,17 +20,21 @@ dynamic encodeNativeTransferPayload(
   if (transferables == null || transferables.isEmpty) return payload;
 
   final targetBuffers = HashSet<ByteBuffer>.identity();
+  final targetTransferables = HashSet<TransferableTypedData>.identity();
   for (final transferable in transferables) {
     if (transferable is ByteBuffer) {
       targetBuffers.add(transferable);
     } else if (transferable is Uint8List) {
       targetBuffers.add(transferable.buffer);
+    } else if (transferable is TransferableTypedData) {
+      targetTransferables.add(transferable);
     }
   }
 
-  if (targetBuffers.isEmpty) return payload;
+  if (targetBuffers.isEmpty && targetTransferables.isEmpty) return payload;
 
   final packetIndexes = HashMap<ByteBuffer, int>.identity();
+  final transferablePacketIndexes = HashMap<TransferableTypedData, int>.identity();
   final packets = <TransferableTypedData>[];
 
   int ensurePacket(ByteBuffer buffer) {
@@ -44,7 +48,26 @@ dynamic encodeNativeTransferPayload(
     return index;
   }
 
+  int ensureTransferablePacket(TransferableTypedData packet) {
+    final existingIndex = transferablePacketIndexes[packet];
+    if (existingIndex != null) return existingIndex;
+
+    packets.add(packet);
+    final index = packets.length - 1;
+    transferablePacketIndexes[packet] = index;
+    return index;
+  }
+
   dynamic encodeValue(dynamic value) {
+    if (value is TransferableTypedData) {
+      if (!targetTransferables.contains(value)) return value;
+      return <String, Object>{
+        _refMarkerKey: true,
+        _typeKey: 'ttd',
+        _indexKey: ensureTransferablePacket(value),
+      };
+    }
+
     if (value is Uint8List) {
       if (!targetBuffers.contains(value.buffer)) return value;
       return <String, Object>{
@@ -72,6 +95,14 @@ dynamic encodeNativeTransferPayload(
     }
 
     if (value is Map) {
+      if (value.keys.every((key) => key is String)) {
+        final mapped = <String, Object?>{};
+        value.forEach((key, mapValue) {
+          mapped[key as String] = encodeValue(mapValue);
+        });
+        return mapped;
+      }
+
       final mapped = <Object?, Object?>{};
       value.forEach((key, mapValue) {
         mapped[key] = encodeValue(mapValue);
@@ -100,33 +131,61 @@ dynamic decodeNativeTransferPayload(dynamic payload) {
   final rawPackets = payload[_packetsKey];
   if (rawPackets is! List) return payload[_payloadKey];
 
-  final buffers = <ByteBuffer>[];
-  for (final rawPacket in rawPackets) {
-    if (rawPacket is TransferableTypedData) {
-      buffers.add(rawPacket.materialize());
+  final packets = List<TransferableTypedData?>.filled(rawPackets.length, null);
+  final buffers = List<ByteBuffer?>.filled(rawPackets.length, null);
+
+  for (var index = 0; index < rawPackets.length; index++) {
+    final rawPacket = rawPackets[index];
+    if (rawPacket is! TransferableTypedData) continue;
+    packets[index] = rawPacket;
+  }
+
+  ByteBuffer? materializeBuffer(int index) {
+    if (index < 0 || index >= packets.length) return null;
+    if (buffers[index] != null) return buffers[index];
+    final packet = packets[index];
+    if (packet == null) return null;
+    final buffer = packet.materialize();
+    buffers[index] = buffer;
+    return buffer;
+  }
+
+  TransferableTypedData? transferablePacketAt(int index) {
+    if (index < 0 || index >= packets.length) return null;
+    return packets[index];
+  }
+
+  dynamic decodeRef(Map<Object?, Object?> value) {
+    final type = value[_typeKey];
+    final index = value[_indexKey];
+    final offset = value[_offsetKey];
+    final length = value[_lengthKey];
+
+    if (type is! String || index is! int) return value;
+
+    if (type == 'ttd') {
+      return transferablePacketAt(index) ?? value;
     }
+
+    if (offset is! int || length is! int) return value;
+    if (offset < 0 || length < 0) return value;
+
+    final buffer = materializeBuffer(index);
+    if (buffer == null) return value;
+    if (offset + length > buffer.lengthInBytes) return value;
+
+    if (type == 'u8') {
+      return Uint8List.view(buffer, offset, length);
+    }
+    if (type == 'bb') {
+      return buffer;
+    }
+    return value;
   }
 
   dynamic decodeValue(dynamic value) {
     if (value is Map && value[_refMarkerKey] == true) {
-      final type = value[_typeKey];
-      final index = value[_indexKey];
-      final offset = value[_offsetKey];
-      final length = value[_lengthKey];
-
-      if (type is! String || index is! int) return value;
-      if (index < 0 || index >= buffers.length) return value;
-      if (offset is! int || length is! int) return value;
-      if (offset < 0 || length < 0) return value;
-
-      final buffer = buffers[index];
-      if (offset + length > buffer.lengthInBytes) return value;
-
-      if (type == 'u8') {
-        return Uint8List.view(buffer, offset, length);
-      }
-      if (type == 'bb') return buffer;
-      return value;
+      return decodeRef(value);
     }
 
     if (value is List) {
@@ -134,6 +193,14 @@ dynamic decodeNativeTransferPayload(dynamic payload) {
     }
 
     if (value is Map) {
+      if (value.keys.every((key) => key is String)) {
+        final mapped = <String, Object?>{};
+        value.forEach((key, mapValue) {
+          mapped[key as String] = decodeValue(mapValue);
+        });
+        return mapped;
+      }
+
       final mapped = <Object?, Object?>{};
       value.forEach((key, mapValue) {
         mapped[key] = decodeValue(mapValue);
