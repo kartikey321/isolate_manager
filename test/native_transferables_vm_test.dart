@@ -45,7 +45,9 @@ void transferablePacketWorker(dynamic params) {
     final packet = message['packet'] as TransferableTypedData?;
     if (packet == null) return;
     final bytes = Uint8List.view(packet.materialize());
-    controller.sendResult(<String, Object?>{'sum': bytes.reduce((a, b) => a + b)});
+    controller.sendResult(<String, Object?>{
+      'sum': bytes.reduce((a, b) => a + b),
+    });
   });
 
   controller.initialized();
@@ -93,9 +95,10 @@ void main() {
     });
 
     test('worker to main sendResult supports transferables', () async {
-      final manager =
-          IsolateManager<Map<String, Object?>, Map<String, Object?>>
-              .createCustom(transferResultWorker);
+      final manager = IsolateManager<
+        Map<String, Object?>,
+        Map<String, Object?>
+      >.createCustom(transferResultWorker);
       await manager.start();
 
       final input = Uint8List.fromList(<int>[1, 2, 3, 250]);
@@ -108,24 +111,28 @@ void main() {
       await manager.stop();
     });
 
-    test('main to worker supports TransferableTypedData in transferables', () async {
-      final manager =
-          IsolateManager<Map<String, Object?>, Map<String, Object?>>
-              .createCustom(transferablePacketWorker);
-      await manager.start();
+    test(
+      'main to worker supports TransferableTypedData in transferables',
+      () async {
+        final manager = IsolateManager<
+          Map<String, Object?>,
+          Map<String, Object?>
+        >.createCustom(transferablePacketWorker);
+        await manager.start();
 
-      final packet = TransferableTypedData.fromList([
-        Uint8List.fromList(<int>[1, 2, 3, 4]),
-      ]);
+        final packet = TransferableTypedData.fromList([
+          Uint8List.fromList(<int>[1, 2, 3, 4]),
+        ]);
 
-      final result = await manager.compute(
-        <String, Object?>{'packet': packet},
-        transferables: <Object>[packet],
-      );
+        final result = await manager.compute(
+          <String, Object?>{'packet': packet},
+          transferables: <Object>[packet],
+        );
 
-      expect(result['sum'], 10);
+        expect(result['sum'], 10);
 
-      await manager.stop();
-    });
+        await manager.stop();
+      },
+    );
   });
 }

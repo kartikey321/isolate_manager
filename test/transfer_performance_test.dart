@@ -18,8 +18,9 @@ import 'functions.dart';
 // possible channel cost when the caller has already done the fromList() copy.
 @pragma('vm:entry-point')
 void _ttdEchoWorker(dynamic params) {
-  final controller =
-      IsolateManagerController<Uint8List, Map<String, Object?>>(params);
+  final controller = IsolateManagerController<Uint8List, Map<String, Object?>>(
+    params,
+  );
   controller.onIsolateMessage.listen((message) {
     final packet = message['packet']! as TransferableTypedData;
     controller.sendResult(Uint8List.view(packet.materialize()));

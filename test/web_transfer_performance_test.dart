@@ -77,9 +77,7 @@ void main() {
         );
 
         print('');
-        print(
-          '  ${sizeKb}KB (warmup=${config.warmups}, runs=${config.runs})',
-        );
+        print('  ${sizeKb}KB (warmup=${config.warmups}, runs=${config.runs})');
         print(
           '    transport_with_prebuilt_transferables: '
           '${formatMs(transportWith)}',

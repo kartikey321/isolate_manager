@@ -21,7 +21,8 @@ void main() {
         payload,
         transferables: <Object>[source.buffer],
       );
-      final decoded = decodeNativeTransferPayload(encoded) as Map<Object?, Object?>;
+      final decoded =
+          decodeNativeTransferPayload(encoded) as Map<Object?, Object?>;
 
       final decodedBytes = decoded['bytes'] as Uint8List?;
       expect(decodedBytes, isNotNull);
@@ -57,7 +58,8 @@ void main() {
         payload,
         transferables: <Object>[packet],
       );
-      final decoded = decodeNativeTransferPayload(encoded) as Map<Object?, Object?>;
+      final decoded =
+          decodeNativeTransferPayload(encoded) as Map<Object?, Object?>;
 
       final decodedPacket = decoded['packet'] as TransferableTypedData?;
       expect(decodedPacket, isNotNull);

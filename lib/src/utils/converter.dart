@@ -26,9 +26,10 @@ R converterHelper<R>(
       if (effectiveValue is Uint8List) {
         effectiveValue = effectiveValue.buffer;
       } else if (effectiveValue is Iterable) {
-        effectiveValue = Uint8List.fromList(
-          effectiveValue.cast<num>().map((e) => e.toInt()).toList(),
-        ).buffer;
+        effectiveValue =
+            Uint8List.fromList(
+              effectiveValue.cast<num>().map((e) => e.toInt()).toList(),
+            ).buffer;
       }
     } else if (isSubtype<R, int>()) {
       effectiveValue = (effectiveValue as num).toInt() as R;

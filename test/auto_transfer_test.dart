@@ -36,9 +36,10 @@ void main() {
     test(
       'should automatically extract transferables from nested data',
       () async {
-        final manager =
-            IsolateManager<Map<String, Object?>, Map<String, Object?>>
-                .createCustom(testWorker);
+        final manager = IsolateManager<
+          Map<String, Object?>,
+          Map<String, Object?>
+        >.createCustom(testWorker);
         await manager.start();
 
         final bytes1 = Uint8List(100);

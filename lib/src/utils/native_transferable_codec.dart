@@ -34,7 +34,8 @@ dynamic encodeNativeTransferPayload(
   if (targetBuffers.isEmpty && targetTransferables.isEmpty) return payload;
 
   final packetIndexes = HashMap<ByteBuffer, int>.identity();
-  final transferablePacketIndexes = HashMap<TransferableTypedData, int>.identity();
+  final transferablePacketIndexes =
+      HashMap<TransferableTypedData, int>.identity();
   final packets = <TransferableTypedData>[];
 
   int ensurePacket(ByteBuffer buffer) {
