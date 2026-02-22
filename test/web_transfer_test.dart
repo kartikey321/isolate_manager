@@ -1,17 +1,21 @@
 @TestOn('browser')
 library;
 
-import 'dart:js_interop';
 import 'dart:math';
 import 'dart:typed_data';
 
 import 'package:isolate_manager/isolate_manager.dart';
 import 'package:test/test.dart';
 
+import 'web_js_interop_helpers.dart'
+    if (dart.library.io) 'web_js_interop_helpers_stub.dart';
+
 const bool _isWasm = bool.fromEnvironment('dart.tool.dart2wasm');
 
-@pragma('vm:entry-point')
-@isolateManagerWorker
+// Worker is pre-generated at test/workers/processBytes.js.
+// @isolateManagerWorker is intentionally omitted to prevent the code
+// generator from injecting an import of this file into isolate_manager_test.dart,
+// which would cause dart:js_interop to be pulled into VM compilation.
 Uint8List processBytes(Uint8List data) {
   // Simple processor: create response with same length
   final result = Uint8List(data.length);
@@ -125,7 +129,7 @@ void main() {
 
       final result = await manager.compute(
         data,
-        transferables: <Object>[data.buffer.toJS],
+        transferables: <Object>[bufferToJSArrayBuffer(data.buffer)],
       );
 
       expect(result.length, data.length);
