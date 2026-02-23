@@ -1455,4 +1455,5 @@ void _addWorkerMappings() {
     'workers/isolateNullableInt',
   );
   IsolateManager.addWorkerMapping(identityBytes, 'workers/identityBytes');
+  IsolateManager.addWorkerMapping(processBytes, 'workers/processBytes');
 }

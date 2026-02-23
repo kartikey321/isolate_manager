@@ -281,3 +281,12 @@ List<List<String>> complexReturn(List<List<String>> params) {
 
 @isolateManagerWorker
 Uint8List identityBytes(Uint8List data) => data;
+
+@isolateManagerWorker
+Uint8List processBytes(Uint8List data) {
+  final result = Uint8List(data.length);
+  for (var i = 0; i < data.length; i++) {
+    result[i] = (data[i] + 1) % 256;
+  }
+  return result;
+}
