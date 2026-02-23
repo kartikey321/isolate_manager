@@ -34,6 +34,12 @@ void main() {
 
     for (final sizeKb in benchmarkSizesKb) {
       test('transport benchmark ${sizeKb}KB', () async {
+        // dart2wasm offers no transfer benefit at 10MB+ and the pre-allocation
+        // cost (60MB byte-by-byte fill in WASM) causes CI timeout.
+        if (_isWasm && sizeKb >= 10240) {
+          return;
+        }
+
         final config = benchmarkConfigForSize(sizeKb);
         final bytesLength = sizeKb * 1024;
 
