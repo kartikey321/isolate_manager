@@ -19,7 +19,7 @@ dynamic encodeNativeTransferPayload(
 }) {
   if (transferables == null || transferables.isEmpty) return payload;
 
-  final targetBuffers = HashSet<ByteBuffer>.identity();
+  final targetBuffers = HashSet<ByteBuffer>();
   final targetTransferables = HashSet<TransferableTypedData>.identity();
   for (final transferable in transferables) {
     if (transferable is ByteBuffer) {
@@ -33,7 +33,7 @@ dynamic encodeNativeTransferPayload(
 
   if (targetBuffers.isEmpty && targetTransferables.isEmpty) return payload;
 
-  final packetIndexes = HashMap<ByteBuffer, int>.identity();
+  final packetIndexes = HashMap<ByteBuffer, int>();
   final transferablePacketIndexes =
       HashMap<TransferableTypedData, int>.identity();
   final packets = <TransferableTypedData>[];
@@ -188,6 +188,10 @@ dynamic decodeNativeTransferPayload(dynamic payload) {
     if (value is Map && value[_refMarkerKey] == true) {
       return decodeRef(value);
     }
+
+    // TypedData (Uint8List, etc.) implements List<int> — must be checked
+    // first so it is returned as-is rather than iterated element-by-element.
+    if (value is TypedData) return value;
 
     if (value is List) {
       return value.map<Object?>(decodeValue).toList();

@@ -4,6 +4,26 @@ import 'package:isolate_manager/isolate_manager.dart';
 import 'package:test/test.dart';
 
 @pragma('vm:entry-point')
+void testWorkerBufferAndList(dynamic params) {
+  final controller =
+      IsolateManagerController<Map<String, Object?>, Map<String, Object?>>(
+        params,
+      );
+
+  controller.onIsolateMessage.listen((_) {
+    final bytes = Uint8List(8);
+    // Result contains a ByteBuffer (covers ByteBuffer branch in _extractTransferables)
+    // and a List with a Uint8List (covers List branch in _extractTransferables).
+    controller.sendResultWithAutoTransfer({
+      'buffer': bytes.buffer,
+      'list': <Object>[Uint8List(4)],
+    });
+  });
+
+  controller.initialized();
+}
+
+@pragma('vm:entry-point')
 void testWorker(dynamic params) {
   final controller =
       IsolateManagerController<Map<String, Object?>, Map<String, Object?>>(
@@ -72,6 +92,24 @@ void main() {
         expect(processed, isNotNull);
         expect(processed![0], 1); // First byte incremented
         expect(processed[99], 100); // Last byte incremented
+
+        await manager.stop();
+      },
+    );
+
+    test(
+      'sendResultWithAutoTransfer handles ByteBuffer and List items',
+      () async {
+        final manager = IsolateManager<
+          Map<String, Object?>,
+          Map<String, Object?>
+        >.createCustom(testWorkerBufferAndList);
+        await manager.start();
+
+        final result = await manager.compute({'trigger': true});
+
+        expect(result['buffer'], isA<ByteBuffer>());
+        expect(result['list'], isList);
 
         await manager.stop();
       },

@@ -13,6 +13,7 @@ R converterHelper<R>(
   bool enableWasmConverter = true,
 }) {
   dynamic effectiveValue = value;
+  // coverage:ignore-start
   if (enableWasmConverter && kIsWasm) {
     if (isSubtype<R, Uint8List>()) {
       if (effectiveValue is ByteBuffer) {
@@ -45,5 +46,6 @@ R converterHelper<R>(
       }
     }
   }
+  // coverage:ignore-end
   return customConverter?.call(effectiveValue) ?? effectiveValue as R;
 }
