@@ -25,6 +25,9 @@ class IsolateManagerController<R, P> {
   /// Get initial parameters when you create the IsolateManager. For internal use only.
   dynamic get _initialParams => _delegate.initialParams;
 
+  /// Get initial parameters when you create the IsolateManager.
+  dynamic get initialParams => _delegate.initialParams;
+
   /// This parameter is only used for Isolate. Use to listen for values from the main application.
   Stream<P> get onIsolateMessage => _delegate.onIsolateMessage;
 
