@@ -25,6 +25,10 @@ class IsolateBridgeController<R, P> {
   void initialized() => _delegate.initialized();
 
   /// Sends [message] to the main isolate.
+  ///
+  /// [transferables] are only honoured on web when a real JS Worker is in use.
+  /// In the same-thread web fallback they are silently ignored and the buffer
+  /// is not detached.
   void send(R message, {List<Object>? transferables}) {
     _delegate.sendResult(message, transferables: transferables);
   }

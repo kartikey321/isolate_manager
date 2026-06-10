@@ -36,6 +36,11 @@ class IsolateBridge<R, P> {
   ///
   /// [transferables] can contain [ByteBuffer], [Uint8List], or platform
   /// transferable objects supported by the underlying backend.
+  ///
+  /// On the web, [transferables] are only honoured when a real JS Worker is in
+  /// use (i.e. `workerName` was provided to [spawn]). In the same-thread
+  /// fallback the list is silently ignored — the message is passed by reference
+  /// and the buffer is not detached from the sender.
   void send(P message, {List<Object>? transferables}) {
     _delegate.send(message, transferables: transferables);
   }
@@ -75,6 +80,13 @@ class IsolateBridge<R, P> {
   /// On VM platforms this spawns a Dart isolate. On web, [workerName] selects a
   /// generated JavaScript worker; when empty, the bridge falls back to the
   /// package's same-thread web controller behavior.
+  ///
+  /// [workerConverter] is only applied on web when a real JS Worker is used.
+  /// On the VM and in the same-thread web fallback it is ignored.
+  ///
+  /// [enableWasmTransferables] controls whether `transferables` passed to
+  /// [send] are forwarded in WASM builds. Disabled by default because most
+  /// WASM targets do not yet support structured-clone transfer.
   static Future<IsolateBridge<R, P>> spawn<R, P>(
     IsolateBridgeFunction function, {
     String? workerName,

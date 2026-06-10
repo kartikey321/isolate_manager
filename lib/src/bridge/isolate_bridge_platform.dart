@@ -73,6 +73,10 @@ class IsolateBridgePlatform<R, P> {
     } else {
       controller = IsolateContactorControllerImpl<R, P>(
         StreamController<dynamic>.broadcast(),
+        // Must stay null: both the main-side and worker-side controllers share
+        // the same broadcast StreamController, so the dispose signal is
+        // delivered to both. A non-null onDispose would fire on the main side
+        // too (self-dispose).
         onDispose: null,
         converter: converter,
         workerConverter: workerConverter,

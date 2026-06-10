@@ -201,6 +201,10 @@ class IsolateBridgePool<R, P> {
   ///
   /// Workers are spawned sequentially; if one fails the already-spawned
   /// workers are closed before the error propagates.
+  ///
+  /// `workerConverter` is only applied on web when a real JS Worker is used.
+  /// `transferables` passed to [send] / [submit] are likewise only honoured in
+  /// Worker mode; in the same-thread web fallback they are silently ignored.
   static Future<IsolateBridgePool<R, P>> spawn<R, P>(
     IsolateBridgeFunction function, {
     int concurrent = 1,
