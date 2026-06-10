@@ -43,17 +43,32 @@ void _throwingBridgeWorker(dynamic params) {
 }
 
 void _postInitCrashWorker(dynamic params) {
-  final controller = IsolateBridgeController<Object?, Object?>(params);
-  controller.initialized();
+  IsolateBridgeController<Object?, Object?>(params)
+    ..initialized()
+    ..messages.listen((_) {});
   scheduleMicrotask(() => throw StateError('post-init crash'));
 }
 
 void _sendErrorWorker(dynamic params) {
-  final controller = IsolateBridgeController<Object?, Object?>(params);
-  controller.initialized();
+  final controller = IsolateBridgeController<Object?, Object?>(params)
+    ..initialized();
   scheduleMicrotask(
     () => controller.sendError(const IsolateException('worker error')),
   );
+}
+
+void _initParamsWorker(dynamic params) {
+  final controller = IsolateBridgeController<Object?, Object?>(params)
+    ..initialized();
+  scheduleMicrotask(() => controller.send(controller.initialParams));
+}
+
+void _selfClosingWorker(dynamic params) {
+  final controller = IsolateBridgeController<Object?, Object?>(params)
+    ..initialized();
+  // Close the controller so the IsolateChannel sink closes, the ReceivePort
+  // closes, and the isolate exits naturally without a dispose signal from main.
+  unawaited(controller.close());
 }
 
 void main() {
@@ -198,5 +213,49 @@ void main() {
         expect(errors, [isA<IsolateException>()]);
       },
     );
+
+    test('initialParams are threaded through to the worker', () async {
+      const params = <String, Object?>{'key': 42, 'flag': true};
+      final bridge = await IsolateBridge.spawn<Object?, Object?>(
+        _initParamsWorker,
+        initialParams: params,
+      );
+
+      addTearDown(bridge.close);
+
+      await expectLater(bridge.stream, emits(params));
+    });
+
+    test('stream emits done after close', () async {
+      final bridge = await IsolateBridge.spawn<Object?, Object?>(
+        _echoBridgeWorker,
+      );
+
+      final done = Completer<void>();
+      bridge.stream.listen((_) {}, onDone: done.complete);
+
+      await bridge.close();
+      await done.future;
+    });
+
+    test('close is idempotent', () async {
+      final bridge = await IsolateBridge.spawn<Object?, Object?>(
+        _echoBridgeWorker,
+      );
+
+      // Concurrent and sequential double-close must not throw.
+      await Future.wait([bridge.close(), bridge.close()]);
+      await bridge.close();
+    });
+
+    test('stream emits done when worker exits naturally', () async {
+      final bridge = await IsolateBridge.spawn<Object?, Object?>(
+        _selfClosingWorker,
+      );
+
+      addTearDown(bridge.close);
+
+      await expectLater(bridge.stream, emitsDone);
+    });
   });
 }

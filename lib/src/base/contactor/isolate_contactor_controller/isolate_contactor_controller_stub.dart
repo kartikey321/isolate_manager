@@ -98,6 +98,10 @@ class IsolateContactorControllerImpl<R, P>
       _isolateStreamController.close(),
       _streamSubscription.cancel(),
     ]);
+    // Close the IsolateChannel sink so the onDone callback fires and closes
+    // the underlying ReceivePort. Without this the ReceivePort stays open and
+    // the worker isolate never exits on its own.
+    await _delegate.sink.close();
   }
 
   Future<void> _handleEvent(dynamic event) async {
