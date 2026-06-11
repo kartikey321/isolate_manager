@@ -61,6 +61,9 @@ class _PoolSlot<R, P> {
   IsolateBridge<R, P> bridge;
   int inFlight = 0;
   bool healthy = true;
+  // Cancelled by _respawnSlot (before replacement) and by pool.close().
+  // ignore: cancel_subscriptions
+  StreamSubscription<R>? subscription;
 }
 
 class _InFlightRequest<R> {
@@ -187,6 +190,9 @@ class IsolateBridgePool<R, P> {
   /// Pending requests waiting for a slot to become eligible.
   final List<_PendingRequest<R, P>> _pendingQueue = [];
   final Map<Object, int> _stickyMap = {};
+  // Slots currently being respawned; used to prevent a concurrent error+done
+  // pair from spawning two replacement workers for the same slot index.
+  final Set<int> _respawningSlots = {};
   int _roundRobinIndex = 0;
   bool _closed = false;
 
@@ -223,6 +229,7 @@ class IsolateBridgePool<R, P> {
     bool autoRespawn = false,
   }) async {
     assert(concurrent >= 1, 'concurrent must be at least 1');
+    assert(maxInFlightPerWorker >= 1, 'maxInFlightPerWorker must be at least 1');
 
     final bridges = <IsolateBridge<R, P>>[];
     try {
@@ -376,7 +383,21 @@ class IsolateBridgePool<R, P> {
       queue.clear();
     }
 
-    await Future.wait(_slots.map((s) => s.bridge.close()));
+    // Cancel subscriptions first so that bridge.close() completing does not
+    // re-trigger _handleSlotDone/_handleSlotError on already-failed slots.
+    for (final slot in _slots) {
+      await slot.subscription?.cancel();
+      slot.subscription = null;
+    }
+    // Close each bridge independently; a single failure must not prevent the
+    // remaining bridges from being cleaned up.
+    await Future.wait(_slots.map((s) async {
+      try {
+        await s.bridge.close();
+        // Swallow any error so all bridges are closed even if one throws.
+        // ignore: avoid_catches_without_on_clauses
+      } catch (_) {}
+    }));
     if (!_streamController.isClosed) await _streamController.close();
   }
 
@@ -385,7 +406,7 @@ class IsolateBridgePool<R, P> {
   // -------------------------------------------------------------------------
 
   void _setupSlotListener(_PoolSlot<R, P> slot) {
-    slot.bridge.stream.listen(
+    slot.subscription = slot.bridge.stream.listen(
       (event) => _handleEvent(slot.index, event),
       onError: (Object e, StackTrace st) => _handleSlotError(slot.index, e, st),
       onDone: () => _handleSlotDone(slot.index),
@@ -432,14 +453,21 @@ class IsolateBridgePool<R, P> {
     if (_closed) return;
     if (!_streamController.isClosed) _streamController.addError(error, stackTrace);
     _markSlotUnhealthy(slotIndex, error, stackTrace);
-    if (_autoRespawn) unawaited(_respawnSlot(slotIndex));
+    // Guard: a crashed worker emits an error then done; without the check
+    // both callbacks would call _respawnSlot, spawning two replacements for
+    // the same slot index. The second one would overwrite and leak the first.
+    if (_autoRespawn && _respawningSlots.add(slotIndex)) {
+      unawaited(_respawnSlot(slotIndex));
+    }
   }
 
   void _handleSlotDone(int slotIndex) {
     if (_closed) return;
     const e = IsolateException('Bridge worker exited unexpectedly.');
     _markSlotUnhealthy(slotIndex, e, StackTrace.empty);
-    if (_autoRespawn) unawaited(_respawnSlot(slotIndex));
+    if (_autoRespawn && _respawningSlots.add(slotIndex)) {
+      unawaited(_respawnSlot(slotIndex));
+    }
   }
 
   void _markSlotUnhealthy(int slotIndex, Object error, StackTrace stackTrace) {
@@ -463,9 +491,13 @@ class IsolateBridgePool<R, P> {
     _slotQueues[slotIndex].clear();
     slot.inFlight = 0;
 
-    // If not auto-respawning, immediately fail pending requests that are
-    // pinned to the dead slot; they have no other path forward.
+    // Remove stale sticky-map entries pointing at the now-dead slot so that
+    // future sticky requests are re-routed rather than silently hitting the
+    // dead slot (or a stateless respawned replacement with no session state).
+    _stickyMap.removeWhere((_, idx) => idx == slotIndex);
+
     if (!_autoRespawn) {
+      // Fail pending requests pinned to the dead slot; they have no other path.
       _pendingQueue.removeWhere((req) {
         if (req.forcedSlotIndex != slotIndex) return false;
         if (!req.completer.isCompleted) req.completer.completeError(error, stackTrace);
@@ -474,6 +506,16 @@ class IsolateBridgePool<R, P> {
     }
 
     _drain();
+
+    // If every slot is now unhealthy and we are not going to respawn, there is
+    // no future drain that could dispatch the remaining pending requests. Fail
+    // them all now rather than leaving their completers permanently unresolved.
+    if (!_autoRespawn && _slots.every((s) => !s.healthy) && _pendingQueue.isNotEmpty) {
+      _pendingQueue.removeWhere((req) {
+        if (!req.completer.isCompleted) req.completer.completeError(error, stackTrace);
+        return true;
+      });
+    }
   }
 
   Future<void> _respawnSlot(int slotIndex) async {
@@ -494,12 +536,32 @@ class IsolateBridgePool<R, P> {
         await bridge.close();
         return;
       }
+      // Cancel the old slot's stream subscription before replacing it.
+      // Without this the old bridge's eventual onDone fires _handleSlotDone
+      // with this slot index, which would look up _slots[slotIndex] (now the
+      // new slot) and incorrectly mark the healthy new slot unhealthy.
+      await _slots[slotIndex].subscription?.cancel();
       final slot = _PoolSlot<R, P>(index: slotIndex, bridge: bridge);
       _slots[slotIndex] = slot;
       _setupSlotListener(slot);
-      _drain();
     } on Object catch (e, st) {
       if (!_streamController.isClosed) _streamController.addError(e, st);
+    } finally {
+      _respawningSlots.remove(slotIndex);
+      // If every slot is dead and no more respawns are in flight, there is no
+      // future drain that will ever dispatch pending requests — fail them now.
+      if (_slots.every((s) => !s.healthy) &&
+          _respawningSlots.isEmpty &&
+          _pendingQueue.isNotEmpty) {
+        const err = IsolateException(
+          'All IsolateBridge workers are unhealthy and could not be respawned.',
+        );
+        _pendingQueue.removeWhere((req) {
+          if (!req.completer.isCompleted) req.completer.completeError(err);
+          return true;
+        });
+      }
+      _drain();
     }
   }
 
@@ -535,7 +597,9 @@ class IsolateBridgePool<R, P> {
         } else {
           _slotQueues[slotIndex].remove(inFlight);
         }
-        slot.inFlight--;
+        // Use _slots[slotIndex] rather than the captured `slot` variable so
+        // that a respawned replacement slot gets the correct decrement.
+        _slots[slotIndex].inFlight--;
         req.completer.completeError(
           TimeoutException(
             'IsolateBridgePool.submit timed out for requestId: ${req.requestId}',
@@ -546,7 +610,21 @@ class IsolateBridgePool<R, P> {
       });
     }
 
-    slot.bridge.send(req.message, transferables: req.transferables);
+    try {
+      slot.bridge.send(req.message, transferables: req.transferables);
+    } on Object catch (e, st) {
+      // bridge.send() threw (e.g. bridge was closed between the health check
+      // and this call). Roll back all tracking and fail the completer so the
+      // slot and queue are left in a consistent state.
+      inFlight.timeoutTimer?.cancel();
+      if (_outputRequestId != null) {
+        _inFlightRequests.remove(req.requestId);
+      } else {
+        _slotQueues[slotIndex].remove(inFlight);
+      }
+      slot.inFlight--;
+      if (!req.completer.isCompleted) req.completer.completeError(e, st);
+    }
   }
 
   /// Dispatches as many pending requests as possible.

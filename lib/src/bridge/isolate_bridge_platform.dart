@@ -10,21 +10,49 @@ import 'package:isolate_manager/src/bridge/isolate_bridge.dart';
 import 'package:isolate_manager/src/utils/converter.dart';
 import 'package:web/web.dart';
 
-/// Same-thread web fallback implementation.
+/// Web implementation of [IsolateBridge].
+///
+/// Worker path: wraps a JS Worker and owns a broadcast [_streamController].
+/// Same-thread path: no worker; stream comes directly from the controller.
 class IsolateBridgePlatform<R, P> {
   IsolateBridgePlatform._({
     required IsolateContactorControllerImpl<R, P> controller,
     required bool enableWasmTransferables,
+    StreamController<R>? streamController,
   }) : _controller = controller,
-       _enableWasmTransferables = enableWasmTransferables;
+       _enableWasmTransferables = enableWasmTransferables,
+       _streamController = streamController;
 
   final IsolateContactorControllerImpl<R, P> _controller;
   final bool _enableWasmTransferables;
-  bool _isClosed = false;
+  // Non-null only for the JS Worker path — used to surface post-init onerror.
+  final StreamController<R>? _streamController;
+  StreamSubscription<R>? _forwardSubscription;
 
-  Stream<R> get stream => _controller.onMessage;
+  bool _isClosed = false;
+  // Cached so every exit signal (onerror, channel onDone, explicit close)
+  // awaits the same single cleanup run.
+  Future<void>? _shutdownFuture;
+
+  Stream<R> get stream => _streamController?.stream ?? _controller.onMessage;
 
   Future<void> get ensureInitialized => _controller.ensureInitialized.future;
+
+  // Worker path only. Sets _isClosed synchronously so send() is blocked
+  // the instant any exit signal fires.
+  Future<void> _shutdown() {
+    _isClosed = true;
+    return _shutdownFuture ??= _doShutdown();
+  }
+
+  Future<void> _doShutdown() async {
+    // Cancel forwarding first so the onDone callback does not re-enter.
+    await _forwardSubscription?.cancel();
+    _forwardSubscription = null;
+    final sc = _streamController;
+    if (sc != null && !sc.isClosed) await sc.close();
+    await _controller.close();
+  }
 
   static Future<IsolateBridgePlatform<R, P>> spawn<R, P>(
     IsolateBridgeFunction function, {
@@ -68,8 +96,40 @@ class IsolateBridgePlatform<R, P> {
         await controller.close();
         rethrow;
       }
-      // Silence any onerror that fires after init completes successfully.
-      unawaited(workerInitError.future.catchError((_) {}));
+
+      // Platform is created before the forwarding subscription and the
+      // post-init onerror are wired, so platform is always non-null when
+      // either fires.
+      final streamController = StreamController<R>.broadcast();
+      final platform = IsolateBridgePlatform<R, P>._(
+        controller: controller,
+        enableWasmTransferables: enableWasmTransferables,
+        streamController: streamController,
+      );
+
+      // Forward all Worker messages (including errors) to our stream.
+      platform._forwardSubscription = controller.onMessage.listen(
+        (event) {
+          if (!streamController.isClosed) streamController.add(event);
+        },
+        onError: (Object e, StackTrace st) {
+          if (!streamController.isClosed) streamController.addError(e, st);
+        },
+        onDone: () => unawaited(platform._shutdown()),
+      );
+
+      // Post-init onerror: surface JS Worker crashes as stream errors (O1 fix).
+      // Before this fix the handler was silenced after init, so post-init Worker
+      // crashes were invisible — stream never received an error or done.
+      worker.onerror = ((ErrorEvent e) {
+        final sc = streamController;
+        if (!sc.isClosed) {
+          sc.addError(IsolateException('Worker error: ${e.message}'));
+        }
+        unawaited(platform._shutdown());
+      }).toJS;
+
+      return platform;
     } else {
       controller = IsolateContactorControllerImpl<R, P>(
         StreamController<dynamic>.broadcast(),
@@ -90,13 +150,21 @@ class IsolateBridgePlatform<R, P> {
         throw IsolateException(error, stackTrace);
       }
 
+      // Fail fast: if the worker returned without calling initialized() we
+      // would hang forever on ensureInitialized.future. Surface it now.
+      if (!controller.ensureInitialized.isCompleted) {
+        await controller.close();
+        throw const IsolateException(
+          'IsolateBridge same-thread worker returned without calling initialized().',
+        );
+      }
       await controller.ensureInitialized.future;
-    }
 
-    return IsolateBridgePlatform<R, P>._(
-      controller: controller,
-      enableWasmTransferables: enableWasmTransferables,
-    );
+      return IsolateBridgePlatform<R, P>._(
+        controller: controller,
+        enableWasmTransferables: enableWasmTransferables,
+      );
+    }
   }
 
   void send(P message, {List<Object>? transferables}) {
@@ -112,7 +180,36 @@ class IsolateBridgePlatform<R, P> {
   Future<void> close() async {
     if (_isClosed) return;
     _isClosed = true;
-    _controller.sendIsolateState(IsolateState.dispose);
-    await _controller.close();
+
+    if (_streamController != null) {
+      // Worker path: signal the worker then use _shutdown() for cleanup.
+      // _shutdown() is idempotent so concurrent exit signals (onerror,
+      // channel onDone) and this explicit close all share one cleanup run.
+      _controller.sendIsolateState(IsolateState.dispose);
+      await _shutdown();
+    } else {
+      // Same-thread path: the dispose signal causes _handleIsolatePort to
+      // call controller.close() asynchronously. We wait for onMessage to
+      // emit done (proof that close() completed) rather than calling
+      // close() ourselves, which would race with the dispose handler's
+      // async close and could cancel the stream subscription before the
+      // handler finishes.
+      //
+      // Set up the listener BEFORE sending dispose so we never miss the
+      // done event even if the broadcast SC delivers synchronously.
+      final doneCompleter = Completer<void>();
+      final sub = _controller.onMessage.listen(
+        (_) {},
+        onDone: () {
+          if (!doneCompleter.isCompleted) doneCompleter.complete();
+        },
+        // Swallow errors — callers subscribe to stream separately.
+        onError: (Object e, StackTrace s) {},
+        cancelOnError: false,
+      );
+      _controller.sendIsolateState(IsolateState.dispose);
+      await doneCompleter.future;
+      await sub.cancel();
+    }
   }
 }
