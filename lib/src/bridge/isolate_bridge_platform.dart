@@ -64,19 +64,38 @@ class IsolateBridgePlatform<R, P> {
     required bool enableWasmTransferables,
     required bool isDebug,
   }) async {
-    final IsolateContactorControllerImpl<R, P> controller;
+    late final IsolateContactorControllerImpl<R, P> controller;
 
     if (workerName.isNotEmpty) {
       final worker = Worker('$workerName.js'.toJS);
+      final streamController = StreamController<R>.broadcast();
+      final workerInitError = Completer<void>();
+      Future<void>? shutdownFuture;
+      var initPhaseComplete = false;
+
+      late final IsolateBridgePlatform<R, P> platform;
+      Future<void> shutdown() {
+        return shutdownFuture ??= () async {
+          platform._isClosed = true;
+          await platform._forwardSubscription?.cancel();
+          platform._forwardSubscription = null;
+          if (!streamController.isClosed) await streamController.close();
+          await controller.close();
+        }();
+      }
+
       // Race the init handshake against a Worker script error so that a
       // crash during startup fails fast instead of hanging forever (B1 fix).
-      final workerInitError = Completer<void>();
       worker.onerror = ((ErrorEvent e) {
         if (!workerInitError.isCompleted) {
           workerInitError.completeError(
             IsolateException('Worker failed to start: ${e.message}'),
           );
         }
+        if (initPhaseComplete && !streamController.isClosed) {
+          streamController.addError(IsolateException('Worker error: ${e.message}'));
+        }
+        unawaited(shutdown());
       }).toJS;
 
       controller = IsolateContactorControllerImpl<R, P>(
@@ -87,47 +106,34 @@ class IsolateBridgePlatform<R, P> {
         debugMode: isDebug,
       );
 
-      try {
-        await Future.any<void>([
-          controller.ensureInitialized.future,
-          workerInitError.future,
-        ]);
-      } catch (_) {
-        await controller.close();
-        rethrow;
-      }
-
-      // Platform is created before the forwarding subscription and the
-      // post-init onerror are wired, so platform is always non-null when
-      // either fires.
-      final streamController = StreamController<R>.broadcast();
-      final platform = IsolateBridgePlatform<R, P>._(
+      platform = IsolateBridgePlatform<R, P>._(
         controller: controller,
         enableWasmTransferables: enableWasmTransferables,
         streamController: streamController,
-      );
+      )
 
-      // Forward all Worker messages (including errors) to our stream.
-      platform._forwardSubscription = controller.onMessage.listen(
+      // Forward all Worker messages (including errors) to our stream before we
+      // await initialization so a post-init immediate crash cannot be missed.
+      .._forwardSubscription = controller.onMessage.listen(
         (event) {
           if (!streamController.isClosed) streamController.add(event);
         },
         onError: (Object e, StackTrace st) {
           if (!streamController.isClosed) streamController.addError(e, st);
         },
-        onDone: () => unawaited(platform._shutdown()),
+        onDone: () => unawaited(shutdown()),
       );
 
-      // Post-init onerror: surface JS Worker crashes as stream errors (O1 fix).
-      // Before this fix the handler was silenced after init, so post-init Worker
-      // crashes were invisible — stream never received an error or done.
-      worker.onerror = ((ErrorEvent e) {
-        final sc = streamController;
-        if (!sc.isClosed) {
-          sc.addError(IsolateException('Worker error: ${e.message}'));
-        }
-        unawaited(platform._shutdown());
-      }).toJS;
+      try {
+        await Future.any<void>([
+          controller.ensureInitialized.future,
+          workerInitError.future,
+        ]);
+      } catch (_) {
+        await shutdown();
+        rethrow;
+      }
+      initPhaseComplete = true;
 
       return platform;
     } else {

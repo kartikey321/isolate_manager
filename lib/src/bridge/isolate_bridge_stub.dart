@@ -33,11 +33,30 @@ class IsolateBridgePlatform<R, P> {
   final IsolateContactorControllerImpl<R, P> _controller;
   final StreamController<R> _streamController;
   final Completer<void> _workerExitCompleter;
+
   bool _isClosed = false;
+  // Cached so every signal path awaits the same single cleanup run.
+  Future<void>? _shutdownFuture;
 
   Stream<R> get stream => _streamController.stream;
 
   Future<void> get ensureInitialized => _controller.ensureInitialized.future;
+
+  // Single cleanup entry-point. Sets _isClosed synchronously so that send()
+  // and close() are blocked the moment any exit signal fires.
+  Future<void> _shutdown() {
+    _isClosed = true;
+    return _shutdownFuture ??= _doShutdown();
+  }
+
+  Future<void> _doShutdown() async {
+    _errorPort.close();
+    _exitPort.close();
+    await _controller.close();
+    _receivePort.close();
+    if (!_streamController.isClosed) await _streamController.close();
+    _isolate.kill();
+  }
 
   static Future<IsolateBridgePlatform<R, P>> spawn<R, P>(
     IsolateBridgeFunction function, {
@@ -62,9 +81,21 @@ class IsolateBridgePlatform<R, P> {
 
     final streamController = StreamController<R>.broadcast();
     final workerExitCompleter = Completer<void>();
-    // Single completer used to surface init-phase errors/exits to Future.any.
     final initFailedCompleter = Completer<void>();
     var initPhaseComplete = false;
+    Isolate? isolate;
+    Future<void>? shutdownFuture;
+
+    Future<void> shutdown() {
+      return shutdownFuture ??= () async {
+        errorPort.close();
+        exitPort.close();
+        await controller.close();
+        receivePort.close();
+        if (!streamController.isClosed) await streamController.close();
+        isolate?.kill();
+      }();
+    }
 
     // Forward all worker messages to the public stream for the bridge lifetime.
     controller.onMessage.listen(
@@ -75,7 +106,7 @@ class IsolateBridgePlatform<R, P> {
         if (!streamController.isClosed) streamController.addError(e, st);
       },
       onDone: () {
-        if (!streamController.isClosed) unawaited(streamController.close());
+        unawaited(shutdown());
       },
     );
 
@@ -88,8 +119,10 @@ class IsolateBridgePlatform<R, P> {
         if (!initFailedCompleter.isCompleted) {
           initFailedCompleter.completeError(ex);
         }
+        unawaited(shutdown());
       } else {
         if (!streamController.isClosed) streamController.addError(ex);
+        unawaited(shutdown());
       }
     });
 
@@ -104,13 +137,13 @@ class IsolateBridgePlatform<R, P> {
             ),
           );
         }
+        if (!workerExitCompleter.isCompleted) workerExitCompleter.complete();
+        unawaited(shutdown());
       } else {
         if (!workerExitCompleter.isCompleted) workerExitCompleter.complete();
-        if (!streamController.isClosed) unawaited(streamController.close());
+        unawaited(shutdown());
       }
     });
-
-    Isolate? isolate;
 
     try {
       isolate = await Isolate.spawn(
@@ -127,12 +160,7 @@ class IsolateBridgePlatform<R, P> {
       ]);
     } catch (_) {
       initPhaseComplete = true;
-      await controller.close();
-      if (!streamController.isClosed) await streamController.close();
-      receivePort.close();
-      errorPort.close();
-      exitPort.close();
-      isolate?.kill();
+      await shutdown();
       rethrow;
     }
 
@@ -159,6 +187,8 @@ class IsolateBridgePlatform<R, P> {
 
   Future<void> close() async {
     if (_isClosed) return;
+    // Set immediately so send() is blocked from this point forward and
+    // a concurrent close() call returns early.
     _isClosed = true;
 
     // Ask the worker to shut down gracefully.
@@ -172,12 +202,7 @@ class IsolateBridgePlatform<R, P> {
       Future<void>.delayed(const Duration(seconds: 3)),
     ]);
 
-    _errorPort.close();
-    _exitPort.close();
-    await _controller.close();
-    _receivePort.close();
-    if (!_streamController.isClosed) await _streamController.close();
-    _isolate.kill();
+    await _shutdown();
   }
 
   static IsolateException _spawnError(Object? error) {

@@ -71,6 +71,23 @@ void _selfClosingWorker(dynamic params) {
   unawaited(controller.close());
 }
 
+void _postInitImmediateCrashWorker(dynamic params) {
+  IsolateBridgeController<Object?, Object?>(params)
+    ..initialized()
+    ..messages.listen((_) {});
+  scheduleMicrotask(() => throw StateError('immediate post-init crash'));
+}
+
+Future<void> _expectBridgeDoneAfterSpawn(
+  Future<IsolateBridge<Object?, Object?>> spawnFuture,
+) async {
+  final bridge = await spawnFuture.timeout(const Duration(seconds: 2));
+  await expectLater(
+    bridge.stream,
+    emitsDone,
+  ).timeout(const Duration(seconds: 2));
+}
+
 void main() {
   group('IsolateBridge', () {
     test(
@@ -257,5 +274,32 @@ void main() {
 
       await expectLater(bridge.stream, emitsDone);
     });
+
+    test(
+      'does not return a dead bridge when worker exits immediately after initialized',
+      () async {
+        for (var i = 0; i < 100; i++) {
+          await _expectBridgeDoneAfterSpawn(
+            IsolateBridge.spawn<Object?, Object?>(_selfClosingWorker),
+          );
+        }
+      },
+    );
+
+    test(
+      'does not miss an immediate post-init crash during spawn handoff',
+      () async {
+        for (var i = 0; i < 100; i++) {
+          final bridge =
+              await IsolateBridge.spawn<Object?, Object?>(
+                _postInitImmediateCrashWorker,
+              ).timeout(const Duration(seconds: 2));
+          await expectLater(
+            bridge.stream,
+            emitsInOrder(<dynamic>[emitsError(isA<IsolateException>()), emitsDone]),
+          ).timeout(const Duration(seconds: 2));
+        }
+      },
+    );
   });
 }
