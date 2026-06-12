@@ -10,6 +10,8 @@ export 'src/bridge/isolate_bridge_controller.dart';
 export 'src/bridge/isolate_bridge_pool.dart';
 export 'src/isolate_manager.dart';
 export 'src/isolate_manager_function.dart';
+export 'src/isolate_worker/isolate_bridge_worker_web.dart'
+    if (dart.library.io) 'src/isolate_worker/isolate_bridge_worker_stub.dart';
 export 'src/models/isolate_exceptions.dart';
 export 'src/models/isolate_manager_custom_worker.dart';
 export 'src/models/isolate_manager_shared_worker.dart';

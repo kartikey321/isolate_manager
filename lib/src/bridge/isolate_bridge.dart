@@ -75,6 +75,9 @@ class IsolateBridge<R, P> {
   /// Closes this bridge and releases platform resources.
   Future<void> close() => _delegate.close();
 
+  /// Alias for [close].
+  Future<void> stop() => close();
+
   /// Spawns a persistent bridge.
   ///
   /// On VM platforms this spawns a Dart isolate. On web, [workerName] selects a

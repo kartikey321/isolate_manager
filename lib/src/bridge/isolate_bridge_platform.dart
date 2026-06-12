@@ -68,7 +68,28 @@ class IsolateBridgePlatform<R, P> {
 
     if (workerName.isNotEmpty) {
       final worker = Worker('$workerName.js'.toJS);
-      final streamController = StreamController<R>.broadcast();
+      final pendingStreamActions = <void Function()>[];
+      late final StreamController<R> streamController;
+      void dispatchOrBuffer(void Function() action) {
+        if (streamController.hasListener) {
+          action();
+        } else {
+          pendingStreamActions.add(action);
+        }
+      }
+
+      void flushPendingStreamActions() {
+        if (!streamController.hasListener || pendingStreamActions.isEmpty) return;
+        final actions = List<void Function()>.from(pendingStreamActions);
+        pendingStreamActions.clear();
+        for (final action in actions) {
+          action();
+        }
+      }
+
+      streamController = StreamController<R>.broadcast(
+        onListen: flushPendingStreamActions,
+      );
       final workerInitError = Completer<void>();
       Future<void>? shutdownFuture;
       var initPhaseComplete = false;
@@ -79,7 +100,13 @@ class IsolateBridgePlatform<R, P> {
           platform._isClosed = true;
           await platform._forwardSubscription?.cancel();
           platform._forwardSubscription = null;
-          if (!streamController.isClosed) await streamController.close();
+          if (!streamController.isClosed) {
+            if (streamController.hasListener) {
+              await streamController.close();
+            } else {
+              pendingStreamActions.add(() => unawaited(streamController.close()));
+            }
+          }
           await controller.close();
         }();
       }
@@ -87,13 +114,18 @@ class IsolateBridgePlatform<R, P> {
       // Race the init handshake against a Worker script error so that a
       // crash during startup fails fast instead of hanging forever (B1 fix).
       worker.onerror = ((ErrorEvent e) {
+        final detail =
+            'message=${e.message} '
+            'filename=${e.filename ?? "unknown"} '
+            'lineno=${e.lineno} '
+            'colno=${e.colno}';
         if (!workerInitError.isCompleted) {
           workerInitError.completeError(
-            IsolateException('Worker failed to start: ${e.message}'),
+            IsolateException('Worker failed to start: $detail'),
           );
         }
         if (initPhaseComplete && !streamController.isClosed) {
-          streamController.addError(IsolateException('Worker error: ${e.message}'));
+          streamController.addError(IsolateException('Worker error: $detail'));
         }
         unawaited(shutdown());
       }).toJS;
@@ -113,18 +145,23 @@ class IsolateBridgePlatform<R, P> {
       )
 
       // Forward all Worker messages (including errors) to our stream before we
-      // await initialization so a post-init immediate crash cannot be missed.
+        // await initialization so a post-init immediate crash cannot be missed.
       .._forwardSubscription = controller.onMessage.listen(
         (event) {
-          if (!streamController.isClosed) streamController.add(event);
+          if (!streamController.isClosed) {
+            dispatchOrBuffer(() => streamController.add(event));
+          }
         },
         onError: (Object e, StackTrace st) {
-          if (!streamController.isClosed) streamController.addError(e, st);
+          if (!streamController.isClosed) {
+            dispatchOrBuffer(() => streamController.addError(e, st));
+          }
         },
         onDone: () => unawaited(shutdown()),
       );
 
       try {
+        worker.postMessage(initialParams.jsify());
         await Future.any<void>([
           controller.ensureInitialized.future,
           workerInitError.future,

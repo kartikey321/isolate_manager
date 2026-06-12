@@ -372,7 +372,6 @@ void main() {
         routing: BridgePoolRoutingStrategy.stickyKey,
         outputRequestId: _requestId,
         isTerminalEvent: _isTerminal,
-        autoRespawn: false,
       );
 
       addTearDown(pool.close);
@@ -409,7 +408,6 @@ void main() {
     test('autoRespawn=true recovers after slot crash and processes new requests', () async {
       final pool = await IsolateBridgePool.spawn<Map<String, Object?>, Map<String, Object?>>(
         _killableWorker,
-        concurrent: 1,
         outputRequestId: _requestId,
         isTerminalEvent: _isTerminal,
         autoRespawn: true,
@@ -439,7 +437,7 @@ void main() {
               )
               .timeout(const Duration(milliseconds: 300));
           break;
-        } catch (_) {
+        } on Object catch (_) {
           // Respawn not ready yet; try again.
         }
       }

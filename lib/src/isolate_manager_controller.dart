@@ -6,11 +6,17 @@ class IsolateManagerController<R, P> {
   ///
   /// The [params] is a default parameter of a custom isolate function.
   /// `onDispose` will be called when the controller is disposed.
-  IsolateManagerController(dynamic params, {void Function()? onDispose})
-    : _delegate = IsolateManagerControllerImpl<R, P>(
-        params,
-        onDispose: onDispose,
-      );
+  IsolateManagerController(
+    dynamic params, {
+    void Function()? onDispose,
+    Object? initialParams,
+    bool captureInitialMessageAsParams = false,
+  }) : _delegate = IsolateManagerControllerImpl<R, P>(
+         params,
+         onDispose: onDispose,
+         initialParams: initialParams,
+         captureInitialMessageAsParams: captureInitialMessageAsParams,
+       );
   final IsolateManagerControllerImpl<R, P> _delegate;
 
   /// Mark the isolate as initialized.

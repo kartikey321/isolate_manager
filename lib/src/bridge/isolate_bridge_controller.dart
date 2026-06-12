@@ -7,13 +7,26 @@ import 'package:isolate_manager/src/models/isolate_exceptions.dart';
 class IsolateBridgeController<R, P> {
   /// Creates a bridge controller from the params passed to the worker entry
   /// point.
-  IsolateBridgeController(dynamic params, {void Function()? onDispose})
-    : _delegate = IsolateManagerController<R, P>(
-        params,
-        onDispose: onDispose,
-      );
+  IsolateBridgeController(
+    dynamic params, {
+    void Function()? onDispose,
+    Object? initialParams = _unsetInitialParams,
+  }) : _delegate = IsolateManagerController<R, P>(
+         params,
+         onDispose: onDispose,
+         initialParams:
+             identical(initialParams, _unsetInitialParams)
+                 ? null
+                 : initialParams,
+         captureInitialMessageAsParams: identical(
+           initialParams,
+           _unsetInitialParams,
+         ),
+       );
 
   final IsolateManagerController<R, P> _delegate;
+
+  static const Object _unsetInitialParams = Object();
 
   /// Initial params passed when spawning the bridge.
   dynamic get initialParams => _delegate.initialParams;

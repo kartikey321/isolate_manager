@@ -16,14 +16,27 @@ class IsolateManagerControllerImpl<R, P>
   ///
   /// The [params] is a default parameter of a custom isolate function.
   /// `onDispose` will be called when the controller is disposed.
-  IsolateManagerControllerImpl(dynamic params, {void Function()? onDispose})
-    : _delegate =
-          params.runtimeType == DedicatedWorkerGlobalScope
-              ? _IsolateManagerWorkerController<R, P>(
-                params as DedicatedWorkerGlobalScope,
-                onDispose: onDispose,
-              )
-              : IsolateContactorController<R, P>(params, onDispose: onDispose);
+  IsolateManagerControllerImpl(
+    dynamic params, {
+    void Function()? onDispose,
+    Object? initialParams,
+    bool captureInitialMessageAsParams = false,
+  }) : _delegate =
+           // Use JS instanceof (via instanceOfString) rather than Dart `is`
+           // checks. Extension-type `is` checks erase to their representation
+           // type at runtime and are unreliable across DDC and dart2js.
+           // instanceOfString is the pattern used by sqlite3_web and other
+           // production packages for exactly this check.
+           // ignore: invalid_runtime_check_with_js_interop_types
+           params is JSObject &&
+                   params.instanceOfString('DedicatedWorkerGlobalScope')
+               ? _IsolateManagerWorkerController<R, P>(
+                 params as DedicatedWorkerGlobalScope,
+                 onDispose: onDispose,
+                 initialParams: initialParams,
+                 captureInitialMessageAsParams: captureInitialMessageAsParams,
+               )
+               : IsolateContactorController<R, P>(params, onDispose: onDispose);
 
   /// Delegation of IsolateContactor.
   final IsolateContactorController<R, P> _delegate;
@@ -62,25 +75,59 @@ class IsolateManagerControllerImpl<R, P>
 // coverage:ignore-start
 class _IsolateManagerWorkerController<R, P>
     implements IsolateContactorController<R, P> {
-  _IsolateManagerWorkerController(this.self, {this.onDispose}) {
+  _IsolateManagerWorkerController(
+    this.self, {
+    this.onDispose,
+    Object? initialParams,
+    bool captureInitialMessageAsParams = false,
+  }) : _initialParams = initialParams,
+       _captureInitialMessageAsParams = captureInitialMessageAsParams {
     self.onmessage =
         (MessageEvent event) {
-          dynamic result = event.data.dartify();
-          if (isImTypeSubtype<P>()) {
-            result = ImType.wrap(result as Object);
+          try {
+            final normalized = _normalizeWorkerMessage(event.data.dartify());
+            // Filter IsolateState control messages so they are never cast to P.
+            // The dispose signal is the only one main sends to a worker; any
+            // future IsolateState variant would likewise be a control message,
+            // not application data.
+            if (normalized is Map && normalized['type'] == r'$IsolateState') {
+              if (normalized['value'] == 'dispose') {
+                onDispose?.call();
+                self.close();
+              }
+              return;
+            }
+            if (_captureInitialMessageAsParams && !_didCaptureInitialMessage) {
+              _initialParams = normalized;
+              _didCaptureInitialMessage = true;
+              return;
+            }
+            dynamic result = normalized;
+            if (isImTypeSubtype<P>()) {
+              result = ImType.wrap(result as Object);
+            }
+            _streamController.sink.add(result);
+          } catch (error, stackTrace) {
+            print(
+              '[IsolateManagerWorkerController] onmessage error '
+              'data=${event.data} error=$error stack=$stackTrace',
+            );
+            rethrow;
           }
-          _streamController.sink.add(result as P);
         }.toJS;
   }
   final DedicatedWorkerGlobalScope self;
   final void Function()? onDispose;
-  final _streamController = StreamController<P>.broadcast();
+  Object? _initialParams;
+  final bool _captureInitialMessageAsParams;
+  bool _didCaptureInitialMessage = false;
+  final _streamController = StreamController<dynamic>.broadcast();
 
   @override
-  Stream<P> get onIsolateMessage => _streamController.stream.cast();
+  Stream<P> get onIsolateMessage => _streamController.stream.cast<P>();
 
   @override
-  Object? get initialParams => null;
+  Object? get initialParams => _initialParams;
 
   /// Send result to the main app
   @override
@@ -127,6 +174,21 @@ class _IsolateManagerWorkerController<R, P>
 
   @override
   void sendIsolateState(IsolateState state) => throw UnimplementedError();
+}
+
+dynamic _normalizeWorkerMessage(dynamic value) {
+  if (value is Map) {
+    return <String, dynamic>{
+      for (final entry in value.entries)
+        entry.key.toString(): _normalizeWorkerMessage(entry.value),
+    };
+  }
+
+  if (value is List) {
+    return value.map(_normalizeWorkerMessage).toList();
+  }
+
+  return value;
 }
 
 // coverage:ignore-end

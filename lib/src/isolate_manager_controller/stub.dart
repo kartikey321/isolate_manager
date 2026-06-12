@@ -12,11 +12,20 @@ class IsolateManagerControllerImpl<R, P>
   ///
   /// The [params] is a default parameter of a custom isolate function.
   /// `onDispose` will be called when the controller is disposed.
-  IsolateManagerControllerImpl(dynamic params, {void Function()? onDispose})
-    : _delegate = IsolateContactorController<R, P>(
-        params,
-        onDispose: onDispose,
-      );
+  IsolateManagerControllerImpl(
+    dynamic params, {
+    void Function()? onDispose,
+    Object? initialParams,
+    bool captureInitialMessageAsParams = false,
+  }) : assert(
+         initialParams == initialParams ||
+             captureInitialMessageAsParams == captureInitialMessageAsParams,
+         'Stub constructor accepts bridge-only worker bootstrap arguments.',
+       ),
+       _delegate = IsolateContactorController<R, P>(
+         params,
+         onDispose: onDispose,
+       );
 
   /// Delegation of IsolateContactor.
   final IsolateContactorController<R, P> _delegate;
