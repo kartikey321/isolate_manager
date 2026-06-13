@@ -116,7 +116,7 @@ class IsolateBridgePlatform<R, P> {
       worker.onerror = ((ErrorEvent e) {
         final detail =
             'message=${e.message} '
-            'filename=${e.filename ?? "unknown"} '
+            'filename=${e.filename} '
             'lineno=${e.lineno} '
             'colno=${e.colno}';
         if (!workerInitError.isCompleted) {
