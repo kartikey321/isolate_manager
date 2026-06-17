@@ -34,6 +34,7 @@ class IsolateContactorControllerImpl<R, P>
     _streamSubscription = _delegate.stream.listen(
       _handleEvent,
       onError: _mainStreamController.addError,
+      onDone: () => unawaited(_onRemoteClose()),
     );
   }
 
@@ -45,6 +46,7 @@ class IsolateContactorControllerImpl<R, P>
   final dynamic _initialParams;
   late final StreamSubscription<dynamic> _streamSubscription;
   final bool _debugMode;
+  bool _isClosed = false;
 
   @override
   final Completer<void> ensureInitialized = Completer<void>();
@@ -60,11 +62,13 @@ class IsolateContactorControllerImpl<R, P>
 
   @override
   void initialized() {
+    if (_isClosed) return;
     _delegate.sink.add({IsolatePort.main: IsolateState.initialized});
   }
 
   @override
   void sendIsolate(P message, {List<Object>? transferables}) {
+    if (_isClosed) return;
     final payload = encodeNativeTransferPayload(
       message,
       transferables: transferables,
@@ -74,11 +78,13 @@ class IsolateContactorControllerImpl<R, P>
 
   @override
   void sendIsolateState(IsolateState state) {
+    if (_isClosed) return;
     _delegate.sink.add({IsolatePort.isolate: state});
   }
 
   @override
   void sendResult(R message, {List<Object>? transferables}) {
+    if (_isClosed) return;
     final payload = encodeNativeTransferPayload(
       message,
       transferables: transferables,
@@ -88,16 +94,39 @@ class IsolateContactorControllerImpl<R, P>
 
   @override
   void sendResultError(IsolateException exception) {
+    if (_isClosed) return;
     _delegate.sink.add({IsolatePort.main: exception});
   }
 
   @override
   Future<void> close() async {
+    if (_isClosed) return;
+    _isClosed = true;
     await Future.wait([
       _mainStreamController.close(),
       _isolateStreamController.close(),
       _streamSubscription.cancel(),
     ]);
+    // Close the IsolateChannel sink so the onDone callback fires and closes
+    // the underlying ReceivePort. Without this the ReceivePort stays open and
+    // the worker isolate never exits on its own.
+    await _delegate.sink.close();
+  }
+
+  // Called when the remote side closes its IsolateChannel sink (sends
+  // _doneToken). Closes our stream controllers so downstream listeners receive
+  // done, then closes our own sink to complete the bidirectional handshake so
+  // the remote ReceivePort can also close, allowing the isolate to exit.
+  Future<void> _onRemoteClose() async {
+    if (_isClosed) return;
+    _isClosed = true;
+    if (!_mainStreamController.isClosed) await _mainStreamController.close();
+    if (!_isolateStreamController.isClosed) await _isolateStreamController.close();
+    try {
+      await _delegate.sink.close();
+      // Catch any platform error if the sink was already torn down.
+      // ignore: avoid_catches_without_on_clauses
+    } catch (_) {}
   }
 
   Future<void> _handleEvent(dynamic event) async {
@@ -149,7 +178,13 @@ class IsolateContactorControllerImpl<R, P>
     );
     switch (decodedValue) {
       case == IsolateState.dispose:
-        _onDispose?.call();
+        // Guard against a throwing onDispose — if it throws, close() would
+        // never be called and any caller waiting for stream-done would hang.
+        try {
+          _onDispose?.call();
+          // Catch both Error and Exception from user-supplied onDispose.
+          // ignore: avoid_catches_without_on_clauses
+        } catch (_) {}
         await close();
       default:
         try {
