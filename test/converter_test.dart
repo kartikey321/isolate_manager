@@ -27,6 +27,47 @@ void main() {
       expect(result, same(value));
     });
 
+    test('normalizes maps only for string-keyed result types', () {
+      final bytes = Uint8List.fromList(<int>[1, 2, 3]);
+      final raw = <Object?, Object?>{
+        'requestId': 'typed-map',
+        'nested': <Object?, Object?>{'value': 42},
+        'bytes': bytes,
+      };
+
+      final typed = converterHelper<Map<String, Object?>>(
+        raw,
+        enableWasmConverter: false,
+      );
+      final untyped = converterHelper<Map<Object?, Object?>>(
+        raw,
+        enableWasmConverter: false,
+      );
+
+      expect(typed, <String, Object?>{
+        'requestId': 'typed-map',
+        'nested': <String, Object?>{'value': 42},
+        'bytes': bytes,
+      });
+      expect(typed['bytes'], same(bytes));
+      expect(untyped, same(raw));
+    });
+
+    test('leaves map conversion to a custom converter', () {
+      final raw = <Object?, Object?>{'value': 42};
+
+      final result = converterHelper<Map<String, Object?>>(
+        raw,
+        enableWasmConverter: false,
+        customConverter:
+            (value) => <String, Object?>{
+              'sameInput': identical(value, raw),
+            },
+      );
+
+      expect(result, <String, Object?>{'sameInput': true});
+    });
+
     test('converts to Uint8List in wasm mode', () {
       if (_isWasm) {
         final byteBuffer = Uint8List.fromList([10, 20, 30]).buffer;

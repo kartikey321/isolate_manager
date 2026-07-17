@@ -6,6 +6,7 @@ import 'package:isolate_manager/src/base/isolate_contactor.dart';
 import 'package:isolate_manager/src/models/initial_params_mixin.dart';
 import 'package:isolate_manager/src/utils/check_subtype.dart';
 import 'package:isolate_manager/src/utils/extract_array_buffers.dart';
+import 'package:isolate_manager/src/utils/normalize_worker_message.dart';
 import 'package:web/web.dart';
 
 /// This method only use to create a custom isolate.
@@ -85,7 +86,7 @@ class _IsolateManagerWorkerController<R, P>
     self.onmessage =
         (MessageEvent event) {
           try {
-            final normalized = _normalizeWorkerMessage(event.data.dartify());
+            final normalized = normalizeWorkerMessage(event.data.dartify());
             // Filter IsolateState control messages so they are never cast to P.
             // The dispose signal is the only one main sends to a worker; any
             // future IsolateState variant would likewise be a control message,
@@ -174,21 +175,6 @@ class _IsolateManagerWorkerController<R, P>
 
   @override
   void sendIsolateState(IsolateState state) => throw UnimplementedError();
-}
-
-dynamic _normalizeWorkerMessage(dynamic value) {
-  if (value is Map) {
-    return <String, dynamic>{
-      for (final entry in value.entries)
-        entry.key.toString(): _normalizeWorkerMessage(entry.value),
-    };
-  }
-
-  if (value is List) {
-    return value.map(_normalizeWorkerMessage).toList();
-  }
-
-  return value;
 }
 
 // coverage:ignore-end

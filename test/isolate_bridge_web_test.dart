@@ -2,6 +2,7 @@
 library;
 
 import 'dart:async';
+import 'dart:typed_data';
 
 import 'package:isolate_manager/isolate_manager.dart';
 import 'package:test/test.dart';
@@ -89,6 +90,44 @@ void main() {
 
       bridge.send('hello from dart worker');
       await expectLater(bridge.stream, emits('hello from dart worker'));
+    });
+
+    test('normalizes typed map responses from a compiled worker', () async {
+      final bridge = await IsolateBridge.spawn<Map<String, Object?>, Object?>(
+        _unused,
+        workerName: 'workers/bridge_dart_echo',
+      ).timeout(const Duration(seconds: 10));
+      addTearDown(bridge.close);
+
+      bridge.send(<String, Object?>{
+        'requestId': 'typed-map',
+        'nested': <String, Object?>{'value': 42},
+      });
+
+      final result = await bridge.stream.first;
+      expect(result['requestId'], 'typed-map');
+      expect(result['nested'], <String, Object?>{'value': 42});
+    });
+
+    test('preserves nested bytes through compiled-worker transfers', () async {
+      final bridge = await IsolateBridge.spawn<
+        Map<String, Object?>,
+        Map<String, Object?>
+      >(_unused, workerName: 'workers/bridge_dart_echo').timeout(
+        const Duration(seconds: 10),
+      );
+      addTearDown(bridge.close);
+
+      final bytes = Uint8List.fromList(<int>[1, 2, 3, 250]);
+      bridge.send(
+        <String, Object?>{'requestId': 'bytes', 'bytes': bytes},
+        transferables: <Object>[bytes.buffer],
+      );
+
+      final result = await bridge.stream.first;
+      expect(result['requestId'], 'bytes');
+      expect(result['bytes'], isA<Uint8List>());
+      expect(result['bytes'], <int>[1, 2, 3, 250]);
     });
 
     test('dispose message does not crash the worker (cast-to-P bug fix)', () async {

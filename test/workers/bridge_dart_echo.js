@@ -365,9 +365,6 @@
     get$hashCode$(receiver) {
       return J.getInterceptor$(receiver).get$hashCode(receiver);
     },
-    get$isNotEmpty$ax(receiver) {
-      return J.getInterceptor$ax(receiver).get$isNotEmpty(receiver);
-    },
     get$iterator$ax(receiver) {
       return J.getInterceptor$ax(receiver).get$iterator(receiver);
     },
@@ -4054,23 +4051,6 @@
       t1._IsolateManagerWorkerController$4$captureInitialMessageAsParams$initialParams$onDispose($self, captureInitialMessageAsParams, initialParams, onDispose, $R, $P);
       return t1;
     },
-    _normalizeWorkerMessage(value) {
-      var t1, t2, t3;
-      if (type$.Map_dynamic_dynamic._is(value)) {
-        t1 = A.LinkedHashMap_LinkedHashMap$_empty(type$.String, type$.dynamic);
-        for (t2 = value.get$entries(), t2 = t2.get$iterator(t2); t2.moveNext$0();) {
-          t3 = t2.get$current();
-          t1.$indexSet(0, J.toString$0$(t3.key), A._normalizeWorkerMessage(t3.value));
-        }
-        return t1;
-      }
-      if (type$.List_dynamic._is(value)) {
-        t1 = J.map$1$1$ax(value, A.web___normalizeWorkerMessage$closure(), type$.dynamic);
-        t1 = A.List_List$_of(t1, t1.$ti._eval$1("ListIterable.E"));
-        return t1;
-      }
-      return value;
-    },
     IsolateManagerControllerImpl: function IsolateManagerControllerImpl(t0, t1) {
       this._delegate = t0;
       this.$ti = t1;
@@ -4236,6 +4216,9 @@
     },
     main_closure: function main_closure() {
     },
+    main__closure: function main__closure(t0) {
+      this.controller = t0;
+    },
     printString(string) {
       if (typeof dartPrint == "function") {
         dartPrint(string);
@@ -4268,25 +4251,44 @@
       return t1;
     },
     converterHelper(value, customConverter, enableWasmConverter, $R) {
-      var t1;
+      var t1, effectiveValue;
       $R._eval$1("0(@)?")._as(customConverter);
       A._asBool(enableWasmConverter);
-      t1 = customConverter == null ? null : customConverter.call$1(value);
-      return t1 == null ? $R._as(value) : t1;
+      t1 = customConverter == null;
+      effectiveValue = t1 && type$.Map_dynamic_dynamic._is(value) && type$.List_Map_of_String_and_nullable_Object._is(A._setArrayType([], $R._eval$1("JSArray<0>"))) ? A.normalizeWorkerMessage(value) : value;
+      t1 = t1 ? null : customConverter.call$1(effectiveValue);
+      return t1 == null ? $R._as(effectiveValue) : t1;
     },
     extractArrayBuffers(transferables) {
-      var t1, t2, t3, t4, t5,
+      var t1, _i, item,
         buffers = A._setArrayType([], type$.JSArray_NativeArrayBuffer);
-      for (t1 = J.get$iterator$ax(transferables), t2 = type$.Uint8List, t3 = type$.ByteBuffer, t4 = type$.NativeArrayBuffer; t1.moveNext$0();) {
-        t5 = t1.get$current();
-        if (t4._is(t5))
-          B.JSArray_methods.add$1(buffers, t5);
-        else if (t3._is(t5))
-          B.JSArray_methods.add$1(buffers, t4._as(t5));
-        else if (t2._is(t5))
-          B.JSArray_methods.add$1(buffers, t4._as(B.NativeUint8List_methods.get$buffer(t5)));
+      for (t1 = type$.NativeArrayBuffer, _i = 0; _i < 1; ++_i) {
+        item = transferables[_i];
+        if (t1._is(item))
+          B.JSArray_methods.add$1(buffers, item);
+        else
+          B.JSArray_methods.add$1(buffers, t1._as(item));
       }
       return buffers;
+    },
+    normalizeWorkerMessage(value) {
+      var t1, t2, t3;
+      if (type$.TypedData._is(value) || type$.ByteBuffer._is(value))
+        return value;
+      if (type$.Map_dynamic_dynamic._is(value)) {
+        t1 = A.LinkedHashMap_LinkedHashMap$_empty(type$.String, type$.dynamic);
+        for (t2 = value.get$entries(), t2 = t2.get$iterator(t2); t2.moveNext$0();) {
+          t3 = t2.get$current();
+          t1.$indexSet(0, J.toString$0$(t3.key), A.normalizeWorkerMessage(t3.value));
+        }
+        return t1;
+      }
+      if (type$.List_dynamic._is(value)) {
+        t1 = J.map$1$1$ax(value, A.normalize_worker_message__normalizeWorkerMessage$closure(), type$.dynamic);
+        t1 = A.List_List$_of(t1, t1.$ti._eval$1("ListIterable.E"));
+        return t1;
+      }
+      return value;
     }
   },
   B = {};
@@ -4415,12 +4417,6 @@
       if (t1 > 0)
         return receiver[t1 - 1];
       throw A.wrapException(A.IterableElementError_noElement());
-    },
-    get$isEmpty(receiver) {
-      return receiver.length === 0;
-    },
-    get$isNotEmpty(receiver) {
-      return receiver.length !== 0;
     },
     toString$0(receiver) {
       return A.Iterable_iterableToFullString(receiver, "[", "]");
@@ -4648,9 +4644,6 @@
     get$iterator(_) {
       return new A.ListIterator(this, this.get$length(0), this.$ti._eval$1("ListIterator<ListIterable.E>"));
     },
-    get$isEmpty(_) {
-      return J.get$length$asx(this._source) === 0;
-    },
     map$1$1(_, toElement, $T) {
       var t1 = this.$ti;
       return new A.MappedListIterable(this, t1._bind$1($T)._eval$1("1(ListIterable.E)")._as(toElement), t1._eval$1("@<ListIterable.E>")._bind$1($T)._eval$1("MappedListIterable<1,2>"));
@@ -4687,10 +4680,6 @@
     get$length(_) {
       var t1 = this.__internal$_iterable;
       return t1.get$length(t1);
-    },
-    get$isEmpty(_) {
-      var t1 = this.__internal$_iterable;
-      return t1.get$isEmpty(t1);
     }
   };
   A.EfficientLengthMappedIterable.prototype = {$isEfficientLengthIterable: 1};
@@ -4824,9 +4813,6 @@
   A._KeysOrValues.prototype = {
     get$length(_) {
       return this._elements.length;
-    },
-    get$isEmpty(_) {
-      return 0 === this._elements.length;
     },
     get$iterator(_) {
       var t1 = this._elements;
@@ -5138,9 +5124,6 @@
     get$length(_) {
       return this._map.__js_helper$_length;
     },
-    get$isEmpty(_) {
-      return this._map.__js_helper$_length === 0;
-    },
     get$iterator(_) {
       var t1 = this._map;
       return new A.LinkedHashMapKeyIterator(t1, t1._modifications, t1._first, this.$ti._eval$1("LinkedHashMapKeyIterator<1>"));
@@ -5170,9 +5153,6 @@
   A.LinkedHashMapEntriesIterable.prototype = {
     get$length(_) {
       return this._map.__js_helper$_length;
-    },
-    get$isEmpty(_) {
-      return this._map.__js_helper$_length === 0;
     },
     get$iterator(_) {
       var t1 = this._map;
@@ -5206,7 +5186,7 @@
     call$1(o) {
       return this.getTag(o);
     },
-    $signature: 3
+    $signature: 4
   };
   A.initHooks_closure0.prototype = {
     call$2(o, tag) {
@@ -5235,7 +5215,8 @@
         return new A._UnmodifiableNativeByteBufferView(receiver.buffer);
       else
         return receiver.buffer;
-    }
+    },
+    $isTypedData: 1
   };
   A._UnmodifiableNativeByteBufferView.prototype = {$isByteBuffer: 1};
   A.NativeByteData.prototype = {
@@ -5389,7 +5370,7 @@
       t1.storedCallback = null;
       f.call$0();
     },
-    $signature: 4
+    $signature: 5
   };
   A._AsyncRun__initializeScheduleImmediate_closure.prototype = {
     call$1(callback) {
@@ -5405,13 +5386,13 @@
     call$0() {
       this.callback.call$0();
     },
-    $signature: 5
+    $signature: 6
   };
   A._AsyncRun__scheduleImmediateWithSetImmediate_internalCallback.prototype = {
     call$0() {
       this.callback.call$0();
     },
-    $signature: 5
+    $signature: 6
   };
   A._TimerImpl.prototype = {
     _TimerImpl$2(milliseconds, callback) {
@@ -6019,7 +6000,7 @@
     call$1(__wc0_formal) {
       this.joinedResult._completeWithResultOf$1(this.originalSource);
     },
-    $signature: 4
+    $signature: 5
   };
   A._Future__propagateToListeners_handleWhenCompleteCallback_closure0.prototype = {
     call$2(e, s) {
@@ -6646,9 +6627,6 @@
     get$length(_) {
       return this._collection$_map._collection$_length;
     },
-    get$isEmpty(_) {
-      return this._collection$_map._collection$_length === 0;
-    },
     get$iterator(_) {
       var t1 = this._collection$_map;
       return new A._HashMapKeyIterator(t1, t1._computeKeys$0(), this.$ti._eval$1("_HashMapKeyIterator<1>"));
@@ -6683,12 +6661,6 @@
     },
     elementAt$1(receiver, index) {
       return this.$index(receiver, index);
-    },
-    get$isEmpty(receiver) {
-      return this.get$length(receiver) === 0;
-    },
-    get$isNotEmpty(receiver) {
-      return !this.get$isEmpty(receiver);
     },
     get$first(receiver) {
       if (this.get$length(receiver) === 0)
@@ -6935,12 +6907,6 @@
         ++count;
       return count;
     },
-    get$isEmpty(_) {
-      return !this.get$iterator(this).moveNext$0();
-    },
-    get$isNotEmpty(_) {
-      return !this.get$isEmpty(this);
-    },
     get$first(_) {
       var it = this.get$iterator(this);
       if (!it.moveNext$0())
@@ -7038,7 +7004,7 @@
       } else
         return o;
     },
-    $signature: 7
+    $signature: 8
   };
   A.promiseToFuture_closure.prototype = {
     call$1(r) {
@@ -7104,7 +7070,7 @@
       }
       return o;
     },
-    $signature: 7
+    $signature: 8
   };
   A.IsolateContactorControllerImplFuture.prototype = {
     get$controller() {
@@ -7128,8 +7094,6 @@
       t2 = this._isolate_contactor_controller_web$_delegate;
       if (t2.get$isClosed())
         return;
-      if (transferables != null)
-        J.get$isNotEmpty$ax(transferables);
       t2.get$sink().add$1(0, A.LinkedHashMap_LinkedHashMap$_literal([B.IsolatePort_0, message], type$.IsolatePort, t1));
     },
     $isIsolateContactorController: 1,
@@ -7228,19 +7192,7 @@
       return J.$eq$(map.$index(0, "type"), "$IsolateState") && J.$eq$(map.$index(0, "value"), this._name);
     }
   };
-  A.IsolateBridgeController.prototype = {
-    send$2$transferables(message, transferables) {
-      var t1, t2;
-      this.$ti._precomputed1._as(message);
-      type$.nullable_List_Object._as(transferables);
-      t1 = this._isolate_bridge_controller$_delegate;
-      t2 = t1._isolate_manager$_delegate;
-      t2._delegate.sendResult$2$transferables(t2.$ti._precomputed1._as(t1.$ti._precomputed1._as(message)), transferables);
-    },
-    send$1(message) {
-      return this.send$2$transferables(message, null);
-    }
-  };
+  A.IsolateBridgeController.prototype = {};
   A.IsolateManagerController.prototype = {};
   A.IsolateManagerControllerImpl.prototype = {$isIsolateManagerController: 1};
   A._IsolateManagerWorkerController.prototype = {
@@ -7253,16 +7205,15 @@
       return new A.CastStream(new A._BroadcastStream(t1, t2), t2._eval$1("@<Stream.T>")._bind$1(this.$ti._rest[1])._eval$1("CastStream<1,2>"));
     },
     sendResult$2$transferables(m, transferables) {
-      var payload, t1, t2;
+      var payload, t1;
       this.$ti._precomputed1._as(m);
       type$.nullable_List_Object._as(transferables);
       payload = A.jsify(A.LinkedHashMap_LinkedHashMap$_literal(["type", "data", "value", m instanceof A.ImType ? m.get$unwrap() : m], type$.String, type$.nullable_Object));
-      t1 = transferables != null && J.get$isNotEmpty$ax(transferables);
-      t2 = this.self;
-      if (t1)
-        t2.postMessage(payload, A.extractArrayBuffers(transferables));
+      t1 = this.self;
+      if (transferables != null)
+        t1.postMessage(payload, A.extractArrayBuffers(transferables));
       else
-        t2.postMessage(payload);
+        t1.postMessage(payload);
     },
     initialized$0() {
       var t1 = type$.String;
@@ -7275,7 +7226,7 @@
       var normalized, result, error, stackTrace, t1, t2, exception, t3;
       A._asJSObject($event);
       try {
-        normalized = A._normalizeWorkerMessage(A.dartify($event.data));
+        normalized = A.normalizeWorkerMessage(A.dartify($event.data));
         if (type$.Map_dynamic_dynamic._is(normalized) && J.$eq$(normalized.$index(0, "type"), "$IsolateState")) {
           if (J.$eq$(normalized.$index(0, "value"), "dispose"))
             this.$this.self.close();
@@ -7305,7 +7256,7 @@
         throw exception;
       }
     },
-    $signature: 8
+    $signature: 9
   };
   A._IsolateManagerControllerImpl_Object_InitialParamsMixin.prototype = {};
   A.isolateBridgeWorkerMain_closure.prototype = {
@@ -7316,7 +7267,7 @@
       if ((t1.future._state & 30) === 0)
         t1.complete$1(A.dartify($event.data));
     },
-    $signature: 8
+    $signature: 9
   };
   A.InitialParamsMixin.prototype = {};
   A.IsolateException.prototype = {
@@ -7357,14 +7308,14 @@
     call$1(e) {
       return A.ImType_wrap(e, type$.ImType_Object);
     },
-    $signature: 19
+    $signature: 18
   };
   A.ImType_wrap_closure0.prototype = {
     call$2(k, v) {
       var t1 = type$.ImType_Object;
       return new A.MapEntry(A.ImType_wrap(k, t1), A.ImType_wrap(v, t1), type$.MapEntry_of_ImType_Object_and_ImType_Object);
     },
-    $signature: 20
+    $signature: 19
   };
   A.ImNum.prototype = {
     toString$0(_) {
@@ -7492,14 +7443,34 @@
               // Function start
               t1 = controller._isolate_bridge_controller$_delegate._isolate_manager$_delegate._delegate;
               t1.initialized$0();
-              t1.get$onIsolateMessage().listen$1(type$.void_Function_nullable_Object_$named_transferables_nullable_List_Object._as(controller.get$send()));
+              t1.get$onIsolateMessage().listen$1(new A.main__closure(controller));
               // implicit return
               return A._asyncReturn(null, $async$completer);
           }
       });
       return A._asyncStartSync($async$call$2, $async$completer);
     },
-    $signature: 21
+    $signature: 20
+  };
+  A.main__closure.prototype = {
+    call$1(message) {
+      var t1, t2, t3;
+      if (type$.Map_dynamic_dynamic._is(message) && type$.Uint8List._is(message.$index(0, "bytes"))) {
+        t1 = this.controller;
+        t2 = A._setArrayType([B.NativeUint8List_methods.get$buffer(type$.Uint8List._as(message.$index(0, "bytes")))], type$.JSArray_Object);
+        t1.$ti._precomputed1._as(message);
+        type$.nullable_List_Object._as(t2);
+        t1 = t1._isolate_bridge_controller$_delegate;
+        t3 = t1._isolate_manager$_delegate;
+        t3._delegate.sendResult$2$transferables(t3.$ti._precomputed1._as(t1.$ti._precomputed1._as(message)), t2);
+        return;
+      }
+      t1 = this.controller;
+      t2 = t1._isolate_bridge_controller$_delegate;
+      t3 = t2._isolate_manager$_delegate;
+      t3._delegate.sendResult$2$transferables(t3.$ti._precomputed1._as(t2.$ti._precomputed1._as(t1.$ti._precomputed1._as(message))), null);
+    },
+    $signature: 3
   };
   (function aliases() {
     var _ = J.LegacyJavaScriptObject.prototype;
@@ -7512,34 +7483,32 @@
       _static_2 = hunkHelpers._static_2,
       _instance_2_u = hunkHelpers._instance_2u,
       _instance_0_u = hunkHelpers._instance_0u,
-      _instance = hunkHelpers.installInstanceTearOff,
       _static = hunkHelpers.installStaticTearOff;
-    _instance_1_u(A.CastStreamSubscription.prototype, "get$__internal$_onData", "__internal$_onData$1", 9);
+    _instance_1_u(A.CastStreamSubscription.prototype, "get$__internal$_onData", "__internal$_onData$1", 3);
     _static_1(A, "async__AsyncRun__scheduleImmediateJsOverride$closure", "_AsyncRun__scheduleImmediateJsOverride", 2);
     _static_1(A, "async__AsyncRun__scheduleImmediateWithSetImmediate$closure", "_AsyncRun__scheduleImmediateWithSetImmediate", 2);
     _static_1(A, "async__AsyncRun__scheduleImmediateWithTimer$closure", "_AsyncRun__scheduleImmediateWithTimer", 2);
     _static_0(A, "async___startMicrotaskLoop$closure", "_startMicrotaskLoop", 0);
     _static_1(A, "async___nullDataHandler$closure", "_nullDataHandler", 1);
-    _static_2(A, "async___nullErrorHandler$closure", "_nullErrorHandler", 6);
+    _static_2(A, "async___nullErrorHandler$closure", "_nullErrorHandler", 7);
     _static_0(A, "async___nullDoneHandler$closure", "_nullDoneHandler", 0);
-    _instance_2_u(A._Future.prototype, "get$_completeError", "_completeError$2", 6);
+    _instance_2_u(A._Future.prototype, "get$_completeError", "_completeError$2", 7);
     _instance_0_u(A._DoneStreamSubscription.prototype, "get$_onMicrotask", "_onMicrotask$0", 0);
     _instance_1_u(A.IsolateContactorControllerImplWorker.prototype, "get$_handleMessage", "_handleMessage$1", 17);
-    _instance(A.IsolateBridgeController.prototype, "get$send", 0, 1, null, ["call$2$transferables", "call$1"], ["send$2$transferables", "send$1"], 18, 0, 0);
-    _static_1(A, "web___normalizeWorkerMessage$closure", "_normalizeWorkerMessage", 3);
     _static(A, "isolate_exceptions_IsolateException___new_tearOff$closure", 1, null, ["call$3", "call$1", "call$2"], ["IsolateException___new_tearOff", function(error) {
       return A.IsolateException___new_tearOff(error, B._StringStackTrace_OdL, "");
     }, function(error, stackTrace) {
       return A.IsolateException___new_tearOff(error, stackTrace, "");
-    }], 22, 0);
+    }], 21, 0);
     _static(A, "isolate_exceptions_UnsupportedImTypeException___new_tearOff$closure", 1, null, ["call$2", "call$1"], ["UnsupportedImTypeException___new_tearOff", function(error) {
       return A.UnsupportedImTypeException___new_tearOff(error, B._StringStackTrace_OdL);
-    }], 23, 0);
+    }], 22, 0);
     _static(A, "converter__converterHelper$closure", 1, null, ["call$1$3$customConverter$enableWasmConverter", "call$1", "call$1$1"], ["converterHelper", function(value) {
       return A.converterHelper(value, null, true, type$.dynamic);
     }, function(value, $R) {
       return A.converterHelper(value, null, true, $R);
-    }], 24, 0);
+    }], 23, 0);
+    _static_1(A, "normalize_worker_message__normalizeWorkerMessage$closure", "normalizeWorkerMessage", 4);
   })();
   (function inheritance() {
     var _mixin = hunkHelpers.mixin,
@@ -7559,7 +7528,7 @@
     _inheritMany(A.EfficientLengthIterable, [A.ListIterable, A.LinkedHashMapKeysIterable, A.LinkedHashMapEntriesIterable, A._HashMapKeyIterable]);
     _inherit(A.EfficientLengthMappedIterable, A.MappedIterable);
     _inherit(A.MappedListIterable, A.ListIterable);
-    _inheritMany(A.Closure, [A.Closure2Args, A.Instantiation, A.Closure0Args, A.TearOffClosure, A.initHooks_closure, A.initHooks_closure1, A._AsyncRun__initializeScheduleImmediate_internalCallback, A._AsyncRun__initializeScheduleImmediate_closure, A._awaitOnObject_closure, A._Future__propagateToListeners_handleWhenCompleteCallback_closure, A.Stream_length_closure, A.MapBase_entries_closure, A.jsify__convert, A.promiseToFuture_closure, A.promiseToFuture_closure0, A.dartify_convert, A._IsolateManagerWorkerController_closure, A.isolateBridgeWorkerMain_closure, A.ImType_wrap_closure, A._ImTypedIterable_unwrap_closure]);
+    _inheritMany(A.Closure, [A.Closure2Args, A.Instantiation, A.Closure0Args, A.TearOffClosure, A.initHooks_closure, A.initHooks_closure1, A._AsyncRun__initializeScheduleImmediate_internalCallback, A._AsyncRun__initializeScheduleImmediate_closure, A._awaitOnObject_closure, A._Future__propagateToListeners_handleWhenCompleteCallback_closure, A.Stream_length_closure, A.MapBase_entries_closure, A.jsify__convert, A.promiseToFuture_closure, A.promiseToFuture_closure0, A.dartify_convert, A._IsolateManagerWorkerController_closure, A.isolateBridgeWorkerMain_closure, A.ImType_wrap_closure, A._ImTypedIterable_unwrap_closure, A.main__closure]);
     _inheritMany(A.Closure2Args, [A.ConstantMap_map_closure, A.initHooks_closure0, A._awaitOnObject_closure0, A._wrapJsFunctionForAsync_closure, A._Future__propagateToListeners_handleWhenCompleteCallback_closure0, A.MapBase_mapToString_closure, A.ImType_wrap_closure0, A._ImTypedMap_unwrap_closure, A.main_closure]);
     _inherit(A.ConstantStringMap, A.ConstantMap);
     _inherit(A.Instantiation1, A.Instantiation);
@@ -7604,12 +7573,12 @@
     typeUniverse: {eC: new Map(), tR: {}, eT: {}, tPV: {}, sEA: []},
     mangledGlobalNames: {int: "int", double: "double", num: "num", String: "String", bool: "bool", Null: "Null", List: "List", Object: "Object", Map: "Map", JSObject: "JSObject"},
     mangledNames: {},
-    types: ["~()", "~(@)", "~(~())", "@(@)", "Null(@)", "Null()", "~(Object,StackTrace)", "Object?(Object?)", "Null(JSObject)", "~(Object?)", "@(@,String)", "@(String)", "Null(~())", "Null(@,StackTrace)", "~(int,@)", "Null(Object,StackTrace)", "~(Object?,Object?)", "~(JSObject)", "~(Object?{transferables:List<Object>?})", "ImType<Object>(@)", "MapEntry<ImType<Object>,ImType<Object>>(@,@)", "Future<~>(IsolateBridgeController<Object?,Object?>,Object?)", "IsolateException(Object[StackTrace,String])", "UnsupportedImTypeException(Object[StackTrace])", "0^(@{customConverter:0^(@)?,enableWasmConverter:bool})<Object?>"],
+    types: ["~()", "~(@)", "~(~())", "~(Object?)", "@(@)", "Null(@)", "Null()", "~(Object,StackTrace)", "Object?(Object?)", "Null(JSObject)", "@(@,String)", "@(String)", "Null(~())", "Null(@,StackTrace)", "~(int,@)", "Null(Object,StackTrace)", "~(Object?,Object?)", "~(JSObject)", "ImType<Object>(@)", "MapEntry<ImType<Object>,ImType<Object>>(@,@)", "Future<~>(IsolateBridgeController<Object?,Object?>,Object?)", "IsolateException(Object[StackTrace,String])", "UnsupportedImTypeException(Object[StackTrace])", "0^(@{customConverter:0^(@)?,enableWasmConverter:bool})<Object?>"],
     interceptorsByTag: null,
     leafTags: null,
     arrayRti: Symbol("$ti")
   };
-  A._Universe_addRules(init.typeUniverse, JSON.parse('{"JavaScriptFunction":"LegacyJavaScriptObject","PlainJavaScriptObject":"LegacyJavaScriptObject","UnknownJavaScriptObject":"LegacyJavaScriptObject","NativeSharedArrayBuffer":"NativeByteBuffer","JSBool":{"bool":[],"TrustedGetRuntimeType":[]},"JSNull":{"TrustedGetRuntimeType":[]},"JavaScriptObject":{"JSObject":[]},"LegacyJavaScriptObject":{"JSObject":[]},"JSArray":{"List":["1"],"EfficientLengthIterable":["1"],"JSObject":[],"Iterable":["1"]},"JSArraySafeToStringHook":{"SafeToStringHook":[]},"JSUnmodifiableArray":{"JSArray":["1"],"List":["1"],"EfficientLengthIterable":["1"],"JSObject":[],"Iterable":["1"]},"ArrayIterator":{"Iterator":["1"]},"JSNumber":{"double":[],"num":[]},"JSInt":{"double":[],"int":[],"num":[],"TrustedGetRuntimeType":[]},"JSNumNotInt":{"double":[],"num":[],"TrustedGetRuntimeType":[]},"JSString":{"String":[],"TrustedGetRuntimeType":[]},"CastStream":{"Stream":["2"],"Stream.T":"2"},"CastStreamSubscription":{"StreamSubscription":["2"]},"LateError":{"Error":[]},"EfficientLengthIterable":{"Iterable":["1"]},"ListIterable":{"EfficientLengthIterable":["1"],"Iterable":["1"]},"ListIterator":{"Iterator":["1"]},"MappedIterable":{"Iterable":["2"],"Iterable.E":"2"},"EfficientLengthMappedIterable":{"MappedIterable":["1","2"],"EfficientLengthIterable":["2"],"Iterable":["2"],"Iterable.E":"2"},"MappedIterator":{"Iterator":["2"]},"MappedListIterable":{"ListIterable":["2"],"EfficientLengthIterable":["2"],"Iterable":["2"],"Iterable.E":"2","ListIterable.E":"2"},"ConstantMap":{"Map":["1","2"]},"ConstantStringMap":{"ConstantMap":["1","2"],"Map":["1","2"]},"_KeysOrValues":{"Iterable":["1"],"Iterable.E":"1"},"_KeysOrValuesOrElementsIterator":{"Iterator":["1"]},"Instantiation":{"Closure":[],"Function":[]},"Instantiation1":{"Closure":[],"Function":[]},"NullError":{"TypeError":[],"Error":[]},"JsNoSuchMethodError":{"Error":[]},"UnknownJsTypeError":{"Error":[]},"_StackTrace":{"StackTrace":[]},"Closure":{"Function":[]},"Closure0Args":{"Closure":[],"Function":[]},"Closure2Args":{"Closure":[],"Function":[]},"TearOffClosure":{"Closure":[],"Function":[]},"StaticClosure":{"Closure":[],"Function":[]},"BoundClosure":{"Closure":[],"Function":[]},"RuntimeError":{"Error":[]},"JsLinkedHashMap":{"MapBase":["1","2"],"LinkedHashMap":["1","2"],"Map":["1","2"]},"LinkedHashMapKeysIterable":{"EfficientLengthIterable":["1"],"Iterable":["1"],"Iterable.E":"1"},"LinkedHashMapKeyIterator":{"Iterator":["1"]},"LinkedHashMapEntriesIterable":{"EfficientLengthIterable":["MapEntry<1,2>"],"Iterable":["MapEntry<1,2>"],"Iterable.E":"MapEntry<1,2>"},"LinkedHashMapEntryIterator":{"Iterator":["MapEntry<1,2>"]},"NativeArrayBuffer":{"NativeByteBuffer":[],"JSObject":[],"ByteBuffer":[],"TrustedGetRuntimeType":[]},"NativeByteBuffer":{"JSObject":[],"ByteBuffer":[],"TrustedGetRuntimeType":[]},"NativeTypedData":{"JSObject":[]},"_UnmodifiableNativeByteBufferView":{"ByteBuffer":[]},"NativeByteData":{"ByteData":[],"JSObject":[],"TrustedGetRuntimeType":[]},"NativeTypedArray":{"JavaScriptIndexingBehavior":["1"],"JSObject":[]},"NativeTypedArrayOfDouble":{"ListBase":["double"],"List":["double"],"JavaScriptIndexingBehavior":["double"],"EfficientLengthIterable":["double"],"JSObject":[],"Iterable":["double"],"FixedLengthListMixin":["double"]},"NativeTypedArrayOfInt":{"ListBase":["int"],"List":["int"],"JavaScriptIndexingBehavior":["int"],"EfficientLengthIterable":["int"],"JSObject":[],"Iterable":["int"],"FixedLengthListMixin":["int"]},"NativeFloat32List":{"Float32List":[],"ListBase":["double"],"List":["double"],"JavaScriptIndexingBehavior":["double"],"EfficientLengthIterable":["double"],"JSObject":[],"Iterable":["double"],"FixedLengthListMixin":["double"],"TrustedGetRuntimeType":[],"ListBase.E":"double"},"NativeFloat64List":{"Float64List":[],"ListBase":["double"],"List":["double"],"JavaScriptIndexingBehavior":["double"],"EfficientLengthIterable":["double"],"JSObject":[],"Iterable":["double"],"FixedLengthListMixin":["double"],"TrustedGetRuntimeType":[],"ListBase.E":"double"},"NativeInt16List":{"Int16List":[],"ListBase":["int"],"List":["int"],"JavaScriptIndexingBehavior":["int"],"EfficientLengthIterable":["int"],"JSObject":[],"Iterable":["int"],"FixedLengthListMixin":["int"],"TrustedGetRuntimeType":[],"ListBase.E":"int"},"NativeInt32List":{"Int32List":[],"ListBase":["int"],"List":["int"],"JavaScriptIndexingBehavior":["int"],"EfficientLengthIterable":["int"],"JSObject":[],"Iterable":["int"],"FixedLengthListMixin":["int"],"TrustedGetRuntimeType":[],"ListBase.E":"int"},"NativeInt8List":{"Int8List":[],"ListBase":["int"],"List":["int"],"JavaScriptIndexingBehavior":["int"],"EfficientLengthIterable":["int"],"JSObject":[],"Iterable":["int"],"FixedLengthListMixin":["int"],"TrustedGetRuntimeType":[],"ListBase.E":"int"},"NativeUint16List":{"Uint16List":[],"ListBase":["int"],"List":["int"],"JavaScriptIndexingBehavior":["int"],"EfficientLengthIterable":["int"],"JSObject":[],"Iterable":["int"],"FixedLengthListMixin":["int"],"TrustedGetRuntimeType":[],"ListBase.E":"int"},"NativeUint32List":{"Uint32List":[],"ListBase":["int"],"List":["int"],"JavaScriptIndexingBehavior":["int"],"EfficientLengthIterable":["int"],"JSObject":[],"Iterable":["int"],"FixedLengthListMixin":["int"],"TrustedGetRuntimeType":[],"ListBase.E":"int"},"NativeUint8ClampedList":{"Uint8ClampedList":[],"ListBase":["int"],"List":["int"],"JavaScriptIndexingBehavior":["int"],"EfficientLengthIterable":["int"],"JSObject":[],"Iterable":["int"],"FixedLengthListMixin":["int"],"TrustedGetRuntimeType":[],"ListBase.E":"int"},"NativeUint8List":{"Uint8List":[],"ListBase":["int"],"List":["int"],"JavaScriptIndexingBehavior":["int"],"EfficientLengthIterable":["int"],"JSObject":[],"Iterable":["int"],"FixedLengthListMixin":["int"],"TrustedGetRuntimeType":[],"ListBase.E":"int"},"_Error":{"Error":[]},"_TypeError":{"TypeError":[],"Error":[]},"_AsyncAwaitCompleter":{"Completer":["1"]},"_SyncStarIterator":{"Iterator":["1"]},"_SyncStarIterable":{"Iterable":["1"],"Iterable.E":"1"},"AsyncError":{"Error":[]},"_BroadcastStream":{"_ControllerStream":["1"],"_StreamImpl":["1"],"Stream":["1"],"Stream.T":"1"},"_BroadcastSubscription":{"_ControllerSubscription":["1"],"_BufferingStreamSubscription":["1"],"StreamSubscription":["1"],"_EventDispatch":["1"]},"_BroadcastStreamController":{"StreamController":["1"],"_StreamControllerLifecycle":["1"],"_EventDispatch":["1"]},"_AsyncBroadcastStreamController":{"_BroadcastStreamController":["1"],"StreamController":["1"],"_StreamControllerLifecycle":["1"],"_EventDispatch":["1"]},"_Completer":{"Completer":["1"]},"_AsyncCompleter":{"_Completer":["1"],"Completer":["1"]},"_Future":{"Future":["1"]},"_ControllerStream":{"_StreamImpl":["1"],"Stream":["1"]},"_ControllerSubscription":{"_BufferingStreamSubscription":["1"],"StreamSubscription":["1"],"_EventDispatch":["1"]},"_BufferingStreamSubscription":{"StreamSubscription":["1"],"_EventDispatch":["1"]},"_StreamImpl":{"Stream":["1"]},"_DelayedData":{"_DelayedEvent":["1"]},"_DelayedError":{"_DelayedEvent":["@"]},"_DelayedDone":{"_DelayedEvent":["@"]},"_DoneStreamSubscription":{"StreamSubscription":["1"]},"_Zone":{"Zone":[]},"_RootZone":{"_Zone":[],"Zone":[]},"_HashMap":{"MapBase":["1","2"],"Map":["1","2"]},"_IdentityHashMap":{"_HashMap":["1","2"],"MapBase":["1","2"],"Map":["1","2"]},"_HashMapKeyIterable":{"EfficientLengthIterable":["1"],"Iterable":["1"],"Iterable.E":"1"},"_HashMapKeyIterator":{"Iterator":["1"]},"MapBase":{"Map":["1","2"]},"double":{"num":[]},"int":{"num":[]},"List":{"EfficientLengthIterable":["1"],"Iterable":["1"]},"Set":{"EfficientLengthIterable":["1"],"Iterable":["1"]},"AssertionError":{"Error":[]},"TypeError":{"Error":[]},"ArgumentError":{"Error":[]},"RangeError":{"Error":[]},"IndexError":{"Error":[]},"UnsupportedError":{"Error":[]},"UnimplementedError":{"Error":[]},"StateError":{"Error":[]},"ConcurrentModificationError":{"Error":[]},"StackOverflowError":{"Error":[]},"_StringStackTrace":{"StackTrace":[]},"IsolateContactorControllerImplFuture":{"IsolateContactorControllerImpl":["1","2"],"IsolateContactorController":["1","2"]},"IsolateContactorControllerImplWorker":{"IsolateContactorControllerImpl":["1","2"],"IsolateContactorController":["1","2"]},"IsolateManagerControllerImpl":{"IsolateManagerController":["1","2"]},"_IsolateManagerWorkerController":{"IsolateContactorController":["1","2"]},"UnsupportedImTypeException":{"IsolateException":[]},"ImNum":{"ImType":["num"],"ImType.T":"num"},"ImString":{"ImType":["String"],"ImType.T":"String"},"ImBool":{"ImType":["bool"],"ImType.T":"bool"},"ImList":{"_ImTypedIterable":["Object"],"ImType":["Iterable<Object>"],"_ImTypedIterable.T":"Object","ImType.T":"Iterable<Object>"},"ImMap":{"_ImTypedMap":["Object","Object"],"ImType":["Map<Object,Object>"],"_ImTypedMap.K":"Object","_ImTypedMap.V":"Object","ImType.T":"Map<Object,Object>"},"_ImTypedIterable":{"ImType":["Iterable<1>"]},"_ImTypedMap":{"ImType":["Map<1,2>"]},"Int8List":{"List":["int"],"EfficientLengthIterable":["int"],"Iterable":["int"]},"Uint8List":{"List":["int"],"EfficientLengthIterable":["int"],"Iterable":["int"]},"Uint8ClampedList":{"List":["int"],"EfficientLengthIterable":["int"],"Iterable":["int"]},"Int16List":{"List":["int"],"EfficientLengthIterable":["int"],"Iterable":["int"]},"Uint16List":{"List":["int"],"EfficientLengthIterable":["int"],"Iterable":["int"]},"Int32List":{"List":["int"],"EfficientLengthIterable":["int"],"Iterable":["int"]},"Uint32List":{"List":["int"],"EfficientLengthIterable":["int"],"Iterable":["int"]},"Float32List":{"List":["double"],"EfficientLengthIterable":["double"],"Iterable":["double"]},"Float64List":{"List":["double"],"EfficientLengthIterable":["double"],"Iterable":["double"]}}'));
+  A._Universe_addRules(init.typeUniverse, JSON.parse('{"JavaScriptFunction":"LegacyJavaScriptObject","PlainJavaScriptObject":"LegacyJavaScriptObject","UnknownJavaScriptObject":"LegacyJavaScriptObject","NativeSharedArrayBuffer":"NativeByteBuffer","JSBool":{"bool":[],"TrustedGetRuntimeType":[]},"JSNull":{"TrustedGetRuntimeType":[]},"JavaScriptObject":{"JSObject":[]},"LegacyJavaScriptObject":{"JSObject":[]},"JSArray":{"List":["1"],"EfficientLengthIterable":["1"],"JSObject":[],"Iterable":["1"]},"JSArraySafeToStringHook":{"SafeToStringHook":[]},"JSUnmodifiableArray":{"JSArray":["1"],"List":["1"],"EfficientLengthIterable":["1"],"JSObject":[],"Iterable":["1"]},"ArrayIterator":{"Iterator":["1"]},"JSNumber":{"double":[],"num":[]},"JSInt":{"double":[],"int":[],"num":[],"TrustedGetRuntimeType":[]},"JSNumNotInt":{"double":[],"num":[],"TrustedGetRuntimeType":[]},"JSString":{"String":[],"TrustedGetRuntimeType":[]},"CastStream":{"Stream":["2"],"Stream.T":"2"},"CastStreamSubscription":{"StreamSubscription":["2"]},"LateError":{"Error":[]},"EfficientLengthIterable":{"Iterable":["1"]},"ListIterable":{"EfficientLengthIterable":["1"],"Iterable":["1"]},"ListIterator":{"Iterator":["1"]},"MappedIterable":{"Iterable":["2"],"Iterable.E":"2"},"EfficientLengthMappedIterable":{"MappedIterable":["1","2"],"EfficientLengthIterable":["2"],"Iterable":["2"],"Iterable.E":"2"},"MappedIterator":{"Iterator":["2"]},"MappedListIterable":{"ListIterable":["2"],"EfficientLengthIterable":["2"],"Iterable":["2"],"ListIterable.E":"2","Iterable.E":"2"},"ConstantMap":{"Map":["1","2"]},"ConstantStringMap":{"ConstantMap":["1","2"],"Map":["1","2"]},"_KeysOrValues":{"Iterable":["1"],"Iterable.E":"1"},"_KeysOrValuesOrElementsIterator":{"Iterator":["1"]},"Instantiation":{"Closure":[],"Function":[]},"Instantiation1":{"Closure":[],"Function":[]},"NullError":{"TypeError":[],"Error":[]},"JsNoSuchMethodError":{"Error":[]},"UnknownJsTypeError":{"Error":[]},"_StackTrace":{"StackTrace":[]},"Closure":{"Function":[]},"Closure0Args":{"Closure":[],"Function":[]},"Closure2Args":{"Closure":[],"Function":[]},"TearOffClosure":{"Closure":[],"Function":[]},"StaticClosure":{"Closure":[],"Function":[]},"BoundClosure":{"Closure":[],"Function":[]},"RuntimeError":{"Error":[]},"JsLinkedHashMap":{"MapBase":["1","2"],"LinkedHashMap":["1","2"],"Map":["1","2"]},"LinkedHashMapKeysIterable":{"EfficientLengthIterable":["1"],"Iterable":["1"],"Iterable.E":"1"},"LinkedHashMapKeyIterator":{"Iterator":["1"]},"LinkedHashMapEntriesIterable":{"EfficientLengthIterable":["MapEntry<1,2>"],"Iterable":["MapEntry<1,2>"],"Iterable.E":"MapEntry<1,2>"},"LinkedHashMapEntryIterator":{"Iterator":["MapEntry<1,2>"]},"NativeArrayBuffer":{"NativeByteBuffer":[],"JSObject":[],"ByteBuffer":[],"TrustedGetRuntimeType":[]},"NativeByteBuffer":{"JSObject":[],"ByteBuffer":[],"TrustedGetRuntimeType":[]},"NativeTypedData":{"JSObject":[],"TypedData":[]},"_UnmodifiableNativeByteBufferView":{"ByteBuffer":[]},"NativeByteData":{"ByteData":[],"JSObject":[],"TypedData":[],"TrustedGetRuntimeType":[]},"NativeTypedArray":{"JavaScriptIndexingBehavior":["1"],"JSObject":[],"TypedData":[]},"NativeTypedArrayOfDouble":{"ListBase":["double"],"List":["double"],"JavaScriptIndexingBehavior":["double"],"EfficientLengthIterable":["double"],"JSObject":[],"TypedData":[],"Iterable":["double"],"FixedLengthListMixin":["double"]},"NativeTypedArrayOfInt":{"ListBase":["int"],"List":["int"],"JavaScriptIndexingBehavior":["int"],"EfficientLengthIterable":["int"],"JSObject":[],"TypedData":[],"Iterable":["int"],"FixedLengthListMixin":["int"]},"NativeFloat32List":{"Float32List":[],"ListBase":["double"],"List":["double"],"JavaScriptIndexingBehavior":["double"],"EfficientLengthIterable":["double"],"JSObject":[],"TypedData":[],"Iterable":["double"],"FixedLengthListMixin":["double"],"TrustedGetRuntimeType":[],"ListBase.E":"double"},"NativeFloat64List":{"Float64List":[],"ListBase":["double"],"List":["double"],"JavaScriptIndexingBehavior":["double"],"EfficientLengthIterable":["double"],"JSObject":[],"TypedData":[],"Iterable":["double"],"FixedLengthListMixin":["double"],"TrustedGetRuntimeType":[],"ListBase.E":"double"},"NativeInt16List":{"Int16List":[],"ListBase":["int"],"List":["int"],"JavaScriptIndexingBehavior":["int"],"EfficientLengthIterable":["int"],"JSObject":[],"TypedData":[],"Iterable":["int"],"FixedLengthListMixin":["int"],"TrustedGetRuntimeType":[],"ListBase.E":"int"},"NativeInt32List":{"Int32List":[],"ListBase":["int"],"List":["int"],"JavaScriptIndexingBehavior":["int"],"EfficientLengthIterable":["int"],"JSObject":[],"TypedData":[],"Iterable":["int"],"FixedLengthListMixin":["int"],"TrustedGetRuntimeType":[],"ListBase.E":"int"},"NativeInt8List":{"Int8List":[],"ListBase":["int"],"List":["int"],"JavaScriptIndexingBehavior":["int"],"EfficientLengthIterable":["int"],"JSObject":[],"TypedData":[],"Iterable":["int"],"FixedLengthListMixin":["int"],"TrustedGetRuntimeType":[],"ListBase.E":"int"},"NativeUint16List":{"Uint16List":[],"ListBase":["int"],"List":["int"],"JavaScriptIndexingBehavior":["int"],"EfficientLengthIterable":["int"],"JSObject":[],"TypedData":[],"Iterable":["int"],"FixedLengthListMixin":["int"],"TrustedGetRuntimeType":[],"ListBase.E":"int"},"NativeUint32List":{"Uint32List":[],"ListBase":["int"],"List":["int"],"JavaScriptIndexingBehavior":["int"],"EfficientLengthIterable":["int"],"JSObject":[],"TypedData":[],"Iterable":["int"],"FixedLengthListMixin":["int"],"TrustedGetRuntimeType":[],"ListBase.E":"int"},"NativeUint8ClampedList":{"Uint8ClampedList":[],"ListBase":["int"],"List":["int"],"JavaScriptIndexingBehavior":["int"],"EfficientLengthIterable":["int"],"JSObject":[],"TypedData":[],"Iterable":["int"],"FixedLengthListMixin":["int"],"TrustedGetRuntimeType":[],"ListBase.E":"int"},"NativeUint8List":{"Uint8List":[],"ListBase":["int"],"List":["int"],"JavaScriptIndexingBehavior":["int"],"EfficientLengthIterable":["int"],"JSObject":[],"TypedData":[],"Iterable":["int"],"FixedLengthListMixin":["int"],"TrustedGetRuntimeType":[],"ListBase.E":"int"},"_Error":{"Error":[]},"_TypeError":{"TypeError":[],"Error":[]},"_AsyncAwaitCompleter":{"Completer":["1"]},"_SyncStarIterator":{"Iterator":["1"]},"_SyncStarIterable":{"Iterable":["1"],"Iterable.E":"1"},"AsyncError":{"Error":[]},"_BroadcastStream":{"_ControllerStream":["1"],"_StreamImpl":["1"],"Stream":["1"],"Stream.T":"1"},"_BroadcastSubscription":{"_ControllerSubscription":["1"],"_BufferingStreamSubscription":["1"],"StreamSubscription":["1"],"_EventDispatch":["1"]},"_BroadcastStreamController":{"StreamController":["1"],"_StreamControllerLifecycle":["1"],"_EventDispatch":["1"]},"_AsyncBroadcastStreamController":{"_BroadcastStreamController":["1"],"StreamController":["1"],"_StreamControllerLifecycle":["1"],"_EventDispatch":["1"]},"_Completer":{"Completer":["1"]},"_AsyncCompleter":{"_Completer":["1"],"Completer":["1"]},"_Future":{"Future":["1"]},"_ControllerStream":{"_StreamImpl":["1"],"Stream":["1"]},"_ControllerSubscription":{"_BufferingStreamSubscription":["1"],"StreamSubscription":["1"],"_EventDispatch":["1"]},"_BufferingStreamSubscription":{"StreamSubscription":["1"],"_EventDispatch":["1"]},"_StreamImpl":{"Stream":["1"]},"_DelayedData":{"_DelayedEvent":["1"]},"_DelayedError":{"_DelayedEvent":["@"]},"_DelayedDone":{"_DelayedEvent":["@"]},"_DoneStreamSubscription":{"StreamSubscription":["1"]},"_Zone":{"Zone":[]},"_RootZone":{"_Zone":[],"Zone":[]},"_HashMap":{"MapBase":["1","2"],"Map":["1","2"]},"_IdentityHashMap":{"_HashMap":["1","2"],"MapBase":["1","2"],"Map":["1","2"]},"_HashMapKeyIterable":{"EfficientLengthIterable":["1"],"Iterable":["1"],"Iterable.E":"1"},"_HashMapKeyIterator":{"Iterator":["1"]},"MapBase":{"Map":["1","2"]},"double":{"num":[]},"int":{"num":[]},"List":{"EfficientLengthIterable":["1"],"Iterable":["1"]},"Set":{"EfficientLengthIterable":["1"],"Iterable":["1"]},"AssertionError":{"Error":[]},"TypeError":{"Error":[]},"ArgumentError":{"Error":[]},"RangeError":{"Error":[]},"IndexError":{"Error":[]},"UnsupportedError":{"Error":[]},"UnimplementedError":{"Error":[]},"StateError":{"Error":[]},"ConcurrentModificationError":{"Error":[]},"StackOverflowError":{"Error":[]},"_StringStackTrace":{"StackTrace":[]},"IsolateContactorControllerImplFuture":{"IsolateContactorControllerImpl":["1","2"],"IsolateContactorController":["1","2"]},"IsolateContactorControllerImplWorker":{"IsolateContactorControllerImpl":["1","2"],"IsolateContactorController":["1","2"]},"IsolateManagerControllerImpl":{"IsolateManagerController":["1","2"]},"_IsolateManagerWorkerController":{"IsolateContactorController":["1","2"]},"UnsupportedImTypeException":{"IsolateException":[]},"ImNum":{"ImType":["num"],"ImType.T":"num"},"ImString":{"ImType":["String"],"ImType.T":"String"},"ImBool":{"ImType":["bool"],"ImType.T":"bool"},"ImList":{"_ImTypedIterable":["Object"],"ImType":["Iterable<Object>"],"_ImTypedIterable.T":"Object","ImType.T":"Iterable<Object>"},"ImMap":{"_ImTypedMap":["Object","Object"],"ImType":["Map<Object,Object>"],"_ImTypedMap.K":"Object","_ImTypedMap.V":"Object","ImType.T":"Map<Object,Object>"},"_ImTypedIterable":{"ImType":["Iterable<1>"]},"_ImTypedMap":{"ImType":["Map<1,2>"]},"ByteData":{"TypedData":[]},"Int8List":{"List":["int"],"EfficientLengthIterable":["int"],"TypedData":[],"Iterable":["int"]},"Uint8List":{"List":["int"],"EfficientLengthIterable":["int"],"TypedData":[],"Iterable":["int"]},"Uint8ClampedList":{"List":["int"],"EfficientLengthIterable":["int"],"TypedData":[],"Iterable":["int"]},"Int16List":{"List":["int"],"EfficientLengthIterable":["int"],"TypedData":[],"Iterable":["int"]},"Uint16List":{"List":["int"],"EfficientLengthIterable":["int"],"TypedData":[],"Iterable":["int"]},"Int32List":{"List":["int"],"EfficientLengthIterable":["int"],"TypedData":[],"Iterable":["int"]},"Uint32List":{"List":["int"],"EfficientLengthIterable":["int"],"TypedData":[],"Iterable":["int"]},"Float32List":{"List":["double"],"EfficientLengthIterable":["double"],"TypedData":[],"Iterable":["double"]},"Float64List":{"List":["double"],"EfficientLengthIterable":["double"],"TypedData":[],"Iterable":["double"]}}'));
   A._Universe_addErasedTypes(init.typeUniverse, JSON.parse('{"NativeTypedArray":1,"_DelayedEvent":1}'));
   var string$ = {
     Error_: "Error handler must accept one Object or one Object and a StackTrace as arguments, and return a value of the returned future's type",
@@ -7638,6 +7607,7 @@
       Iterable_ImType_Object: findType("Iterable<ImType<Object>>"),
       Iterable_dynamic: findType("Iterable<@>"),
       JSArray_NativeArrayBuffer: findType("JSArray<NativeArrayBuffer>"),
+      JSArray_Object: findType("JSArray<Object>"),
       JSArray_String: findType("JSArray<String>"),
       JSArray_dynamic: findType("JSArray<@>"),
       JSNull: findType("JSNull"),
@@ -7645,6 +7615,7 @@
       JavaScriptFunction: findType("JavaScriptFunction"),
       JavaScriptIndexingBehavior_dynamic: findType("JavaScriptIndexingBehavior<@>"),
       List_ImType_Object: findType("List<ImType<Object>>"),
+      List_Map_of_String_and_nullable_Object: findType("List<Map<String,Object?>>"),
       List_dynamic: findType("List<@>"),
       MapEntry_of_ImType_Object_and_ImType_Object: findType("MapEntry<ImType<Object>,ImType<Object>>"),
       Map_dynamic_dynamic: findType("Map<@,@>"),
@@ -7657,6 +7628,7 @@
       String: findType("String"),
       TrustedGetRuntimeType: findType("TrustedGetRuntimeType"),
       TypeError: findType("TypeError"),
+      TypedData: findType("TypedData"),
       Uint16List: findType("Uint16List"),
       Uint32List: findType("Uint32List"),
       Uint8ClampedList: findType("Uint8ClampedList"),
@@ -7695,8 +7667,7 @@
       void: findType("~"),
       void_Function: findType("~()"),
       void_Function_Object: findType("~(Object)"),
-      void_Function_Object_StackTrace: findType("~(Object,StackTrace)"),
-      void_Function_nullable_Object_$named_transferables_nullable_List_Object: findType("~(Object?{transferables:List<Object>?})")
+      void_Function_Object_StackTrace: findType("~(Object,StackTrace)")
     };
   })();
   (function constants() {
@@ -7861,7 +7832,7 @@
   })();
   (function staticFields() {
     $._JS_INTEROP_INTERCEPTOR_TAG = null;
-    $._toStringVisiting = A._setArrayType([], A.findType("JSArray<Object>"));
+    $._toStringVisiting = A._setArrayType([], type$.JSArray_Object);
     $.Primitives__identityHashCodeProperty = null;
     $.BoundClosure__receiverFieldNameCache = null;
     $.BoundClosure__interceptorFieldNameCache = null;
@@ -7972,14 +7943,14 @@
   Function.prototype.call$0 = function() {
     return this();
   };
+  Function.prototype.call$1$1 = function(a) {
+    return this(a);
+  };
   Function.prototype.call$3 = function(a, b, c) {
     return this(a, b, c);
   };
   Function.prototype.call$4 = function(a, b, c, d) {
     return this(a, b, c, d);
-  };
-  Function.prototype.call$1$1 = function(a) {
-    return this(a);
   };
   Function.prototype.call$2$1 = function(a) {
     return this(a);
