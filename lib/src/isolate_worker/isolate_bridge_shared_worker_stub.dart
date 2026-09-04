@@ -24,6 +24,7 @@ class IsolateBridgeSharedWorkerController<R, P> {
 
   Object? get initialParams => throw UnsupportedError('web only');
   Stream<P> get messages => throw UnsupportedError('web only');
+  Stream<Object?> get rawMessages => throw UnsupportedError('web only');
   Future<void> get done => throw UnsupportedError('web only');
   void initialized() => throw UnsupportedError('web only');
   void send(R message, {List<Object>? transferables}) =>

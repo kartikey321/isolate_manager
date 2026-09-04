@@ -73,24 +73,27 @@ void main() {
   });
 
   group('WebBroadcastChannel (browser)', () {
-    test('a message sent on one channel arrives on another with the same name', () async {
-      final name = 'test-channel-${DateTime.now().microsecondsSinceEpoch}';
-      final a = WebBroadcastChannel(name);
-      final b = WebBroadcastChannel(name);
-      addTearDown(a.close);
-      addTearDown(b.close);
+    test(
+      'a message sent on one channel arrives on another with the same name',
+      () async {
+        final name = 'test-channel-${DateTime.now().microsecondsSinceEpoch}';
+        final a = WebBroadcastChannel(name);
+        final b = WebBroadcastChannel(name);
+        addTearDown(a.close);
+        addTearDown(b.close);
 
-      final received = Completer<Object?>();
-      b.messages.listen((msg) {
-        if (!received.isCompleted) received.complete(msg);
-      });
+        final received = Completer<Object?>();
+        b.messages.listen((msg) {
+          if (!received.isCompleted) received.complete(msg);
+        });
 
-      a.send(<String, Object?>{'hello': 'world'});
+        a.send(<String, Object?>{'hello': 'world'});
 
-      final msg = await received.future.timeout(const Duration(seconds: 5));
-      expect(msg, isA<Map>());
-      expect((msg! as Map)['hello'], 'world');
-    });
+        final msg = await received.future.timeout(const Duration(seconds: 5));
+        expect(msg, isA<Map<dynamic, dynamic>>());
+        expect((msg! as Map<dynamic, dynamic>)['hello'], 'world');
+      },
+    );
 
     test('a channel never receives its own message', () async {
       final name = 'test-channel-${DateTime.now().microsecondsSinceEpoch}';

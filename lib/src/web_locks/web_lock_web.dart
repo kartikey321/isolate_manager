@@ -80,7 +80,12 @@ class WebLock {
     String name, {
     bool steal = false,
     WebLockCancelToken? cancelToken,
-  }) => _request(name, ifAvailable: false, steal: steal, cancelToken: cancelToken);
+  }) => _request(
+    name,
+    ifAvailable: false,
+    steal: steal,
+    cancelToken: cancelToken,
+  );
 
   static Future<WebLockHandle?> _request(
     String name, {

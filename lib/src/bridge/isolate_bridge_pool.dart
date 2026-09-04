@@ -67,7 +67,11 @@ class _PoolSlot<R, P> {
 }
 
 class _InFlightRequest<R> {
-  _InFlightRequest({required this.slotIndex, required this.completer, this.onEvent});
+  _InFlightRequest({
+    required this.slotIndex,
+    required this.completer,
+    this.onEvent,
+  });
 
   final int slotIndex;
   final Completer<R> completer;
@@ -94,6 +98,7 @@ class _PendingRequest<R, P> {
   final List<Object>? transferables;
   final void Function(R)? onEvent;
   final Duration? timeout;
+
   /// Non-null when the custom [router] pinned this request to a specific slot.
   final int? forcedSlotIndex;
 }
@@ -183,10 +188,13 @@ class IsolateBridgePool<R, P> {
   final bool _isDebug;
 
   final StreamController<R> _streamController = StreamController<R>.broadcast();
+
   /// Correlation-mode tracking: requestId → in-flight request.
   final Map<Object, _InFlightRequest<R>> _inFlightRequests = {};
+
   /// Slot-FIFO tracking: one ordered list per slot.
   final List<List<_InFlightRequest<R>>> _slotQueues;
+
   /// Pending requests waiting for a slot to become eligible.
   final List<_PendingRequest<R, P>> _pendingQueue = [];
   final Map<Object, int> _stickyMap = {};
@@ -229,7 +237,10 @@ class IsolateBridgePool<R, P> {
     bool autoRespawn = false,
   }) async {
     assert(concurrent >= 1, 'concurrent must be at least 1');
-    assert(maxInFlightPerWorker >= 1, 'maxInFlightPerWorker must be at least 1');
+    assert(
+      maxInFlightPerWorker >= 1,
+      'maxInFlightPerWorker must be at least 1',
+    );
 
     final bridges = <IsolateBridge<R, P>>[];
     try {
@@ -254,7 +265,8 @@ class IsolateBridgePool<R, P> {
     }
 
     final slots = <_PoolSlot<R, P>>[
-      for (var i = 0; i < concurrent; i++) _PoolSlot<R, P>(index: i, bridge: bridges[i]),
+      for (var i = 0; i < concurrent; i++)
+        _PoolSlot<R, P>(index: i, bridge: bridges[i]),
     ];
 
     final pool = IsolateBridgePool<R, P>._(
@@ -300,7 +312,9 @@ class IsolateBridgePool<R, P> {
     Duration? timeout,
   }) {
     if (_closed) {
-      return Future.error(const IsolateException('IsolateBridgePool is closed.'));
+      return Future.error(
+        const IsolateException('IsolateBridgePool is closed.'),
+      );
     }
 
     final completer = Completer<R>();
@@ -336,7 +350,9 @@ class IsolateBridgePool<R, P> {
     final forcedIndex = _computeForcedIndex(message);
     final slot = _findHealthySlot(stickyKey, forcedIndex);
     if (slot == null) {
-      throw const IsolateException('No healthy slot available in IsolateBridgePool.');
+      throw const IsolateException(
+        'No healthy slot available in IsolateBridgePool.',
+      );
     }
 
     if (stickyKey != null && _routing == BridgePoolRoutingStrategy.stickyKey) {
@@ -391,13 +407,15 @@ class IsolateBridgePool<R, P> {
     }
     // Close each bridge independently; a single failure must not prevent the
     // remaining bridges from being cleaned up.
-    await Future.wait(_slots.map((s) async {
-      try {
-        await s.bridge.close();
-        // Swallow any error so all bridges are closed even if one throws.
-        // ignore: avoid_catches_without_on_clauses
-      } catch (_) {}
-    }));
+    await Future.wait(
+      _slots.map((s) async {
+        try {
+          await s.bridge.close();
+          // Swallow any error so all bridges are closed even if one throws.
+          // ignore: avoid_catches_without_on_clauses
+        } catch (_) {}
+      }),
+    );
     if (!_streamController.isClosed) await _streamController.close();
   }
 
@@ -451,7 +469,8 @@ class IsolateBridgePool<R, P> {
 
   void _handleSlotError(int slotIndex, Object error, StackTrace stackTrace) {
     if (_closed) return;
-    if (!_streamController.isClosed) _streamController.addError(error, stackTrace);
+    if (!_streamController.isClosed)
+      _streamController.addError(error, stackTrace);
     _markSlotUnhealthy(slotIndex, error, stackTrace);
     // Guard: a crashed worker emits an error then done; without the check
     // both callbacks would call _respawnSlot, spawning two replacements for
@@ -479,14 +498,16 @@ class IsolateBridgePool<R, P> {
     _inFlightRequests.removeWhere((_, req) {
       if (req.slotIndex != slotIndex) return false;
       req.timeoutTimer?.cancel();
-      if (!req.completer.isCompleted) req.completer.completeError(error, stackTrace);
+      if (!req.completer.isCompleted)
+        req.completer.completeError(error, stackTrace);
       return true;
     });
 
     // Fail slot-queue requests.
     for (final req in _slotQueues[slotIndex]) {
       req.timeoutTimer?.cancel();
-      if (!req.completer.isCompleted) req.completer.completeError(error, stackTrace);
+      if (!req.completer.isCompleted)
+        req.completer.completeError(error, stackTrace);
     }
     _slotQueues[slotIndex].clear();
     slot.inFlight = 0;
@@ -500,7 +521,8 @@ class IsolateBridgePool<R, P> {
       // Fail pending requests pinned to the dead slot; they have no other path.
       _pendingQueue.removeWhere((req) {
         if (req.forcedSlotIndex != slotIndex) return false;
-        if (!req.completer.isCompleted) req.completer.completeError(error, stackTrace);
+        if (!req.completer.isCompleted)
+          req.completer.completeError(error, stackTrace);
         return true;
       });
     }
@@ -510,9 +532,12 @@ class IsolateBridgePool<R, P> {
     // If every slot is now unhealthy and we are not going to respawn, there is
     // no future drain that could dispatch the remaining pending requests. Fail
     // them all now rather than leaving their completers permanently unresolved.
-    if (!_autoRespawn && _slots.every((s) => !s.healthy) && _pendingQueue.isNotEmpty) {
+    if (!_autoRespawn &&
+        _slots.every((s) => !s.healthy) &&
+        _pendingQueue.isNotEmpty) {
       _pendingQueue.removeWhere((req) {
-        if (!req.completer.isCompleted) req.completer.completeError(error, stackTrace);
+        if (!req.completer.isCompleted)
+          req.completer.completeError(error, stackTrace);
         return true;
       });
     }
@@ -573,7 +598,8 @@ class IsolateBridgePool<R, P> {
     final slot = _slots[slotIndex];
     slot.inFlight++;
 
-    if (req.stickyKey != null && _routing == BridgePoolRoutingStrategy.stickyKey) {
+    if (req.stickyKey != null &&
+        _routing == BridgePoolRoutingStrategy.stickyKey) {
       _stickyMap[req.stickyKey!] = slotIndex;
     }
 
@@ -656,7 +682,9 @@ class IsolateBridgePool<R, P> {
   int? _findEligibleSlot(Object? stickyKey, int? forcedIndex) {
     if (forcedIndex != null) {
       final slot = _slots[forcedIndex];
-      return (slot.healthy && slot.inFlight < _maxInFlightPerWorker) ? forcedIndex : null;
+      return (slot.healthy && slot.inFlight < _maxInFlightPerWorker)
+          ? forcedIndex
+          : null;
     }
     return switch (_routing) {
       BridgePoolRoutingStrategy.roundRobin => _roundRobinRoute(),
@@ -682,7 +710,12 @@ class IsolateBridgePool<R, P> {
   int? _computeForcedIndex(P message) {
     if (_router == null) return null;
     final views = [
-      for (final s in _slots) BridgeSlotView(index: s.index, inFlight: s.inFlight, healthy: s.healthy),
+      for (final s in _slots)
+        BridgeSlotView(
+          index: s.index,
+          inFlight: s.inFlight,
+          healthy: s.healthy,
+        ),
     ];
     return _router(message, views);
   }

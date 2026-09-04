@@ -8,6 +8,7 @@ import 'package:isolate_manager/src/base/contactor/isolate_contactor_controller/
 import 'package:isolate_manager/src/base/isolate_contactor.dart';
 import 'package:isolate_manager/src/bridge/isolate_bridge.dart';
 import 'package:isolate_manager/src/utils/converter.dart';
+import 'package:isolate_manager/src/utils/extract_array_buffers.dart';
 import 'package:web/web.dart';
 
 /// Web implementation of [IsolateBridge].
@@ -65,6 +66,7 @@ class IsolateBridgePlatform<R, P> {
     required IsolateConverter<R> workerConverter,
     required bool enableWasmTransferables,
     required bool isDebug,
+    List<Object>? initialTransferables,
   }) async {
     late final IsolateContactorControllerImpl<R, P> controller;
 
@@ -216,11 +218,25 @@ class IsolateBridgePlatform<R, P> {
         // Send initial params through the resolved message target.
         // For SharedWorker this goes through the MessagePort; for dedicated
         // Worker it goes directly to the worker object.
+        //
+        // initialTransferables travels alongside initialParams in this same
+        // call — e.g. a raw MessagePort (one half of a MessageChannel the
+        // caller created) handed to the spawned worker as part of its very
+        // first message, rather than posted separately after spawn.
         final target = messageTarget as JSObject;
+        final jsInitialTransferables = extractArrayBuffers(
+          initialTransferables ?? const [],
+        );
         if (target.isA<MessagePort>()) {
-          (target as MessagePort).postMessage(initialParams.jsify());
+          (target as MessagePort).postMessage(
+            initialParams.jsify(),
+            jsInitialTransferables,
+          );
         } else {
-          (target as Worker).postMessage(initialParams.jsify());
+          (target as Worker).postMessage(
+            initialParams.jsify(),
+            jsInitialTransferables,
+          );
         }
 
         await Future.any<void>([
@@ -276,8 +292,11 @@ class IsolateBridgePlatform<R, P> {
       throw const IsolateException('The IsolateBridge is already closed.');
     }
 
-    final effectiveTransferables =
-        (!_enableWasmTransferables && kIsWasm) ? null : transferables;
+    final effectiveTransferables = filterTransferablesForWasm(
+      transferables,
+      allowBuffers: _enableWasmTransferables,
+      isWasm: kIsWasm,
+    );
     _controller.sendIsolate(message, transferables: effectiveTransferables);
   }
 

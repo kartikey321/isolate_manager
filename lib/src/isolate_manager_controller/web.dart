@@ -207,6 +207,7 @@ class IsolateManagerMessagePortController<R, P>
     port.onmessage =
         (MessageEvent event) {
           try {
+            if (!_rawController.isClosed) _rawController.add(event);
             final normalized = normalizeWorkerMessage(event.data.dartify());
             if (normalized is Map && normalized['type'] == r'$IsolateState') {
               if (normalized['value'] == 'dispose') {
@@ -249,10 +250,23 @@ class IsolateManagerMessagePortController<R, P>
   final bool _captureInitialMessageAsParams;
   bool _didCaptureInitialMessage = false;
   final _streamController = StreamController<dynamic>.broadcast();
+  final _rawController = StreamController<MessageEvent>.broadcast();
   final Completer<void> _closed = Completer<void>();
 
   @override
   Stream<P> get onIsolateMessage => _streamController.stream.cast<P>();
+
+  /// Every [MessageEvent] received on this port, verbatim — including
+  /// control messages [onIsolateMessage] filters out, and *before* any
+  /// [normalizeWorkerMessage] conversion.
+  ///
+  /// `event.data` alone never carries a transferred [MessagePort]: a
+  /// structured-clone transfer list arrives on [MessageEvent.ports], not in
+  /// the data payload. Use this stream (not [onIsolateMessage]) when a
+  /// message may hand this port a live [MessagePort] — e.g. a leader
+  /// election handoff in a SharedWorker proxy — and read `event.ports`
+  /// directly.
+  Stream<MessageEvent> get rawMessages => _rawController.stream;
 
   /// Completes once this client port has been disposed or closed.
   Future<void> get done => _closed.future;
@@ -265,10 +279,14 @@ class IsolateManagerMessagePortController<R, P>
     final value = m is ImType ? m.unwrap : m;
     final payload = <String, Object?>{'type': 'data', 'value': value}.jsify();
 
-    // Drop transferables on WASM unless explicitly opted in — matches the
-    // main-side guard in IsolateBridgePlatform.send().
-    final effectiveTransferables =
-        (!enableWasmTransferables && kIsWasm) ? null : transferables;
+    // Drop buffer-like transferables on WASM unless explicitly opted in —
+    // matches the main-side guard in IsolateBridgePlatform.send(). A
+    // MessagePort is always kept; see filterTransferablesForWasm's doc.
+    final effectiveTransferables = filterTransferablesForWasm(
+      transferables,
+      allowBuffers: enableWasmTransferables,
+      isWasm: kIsWasm,
+    );
 
     if (effectiveTransferables != null && effectiveTransferables.isNotEmpty) {
       final jsTransferables = extractArrayBuffers(effectiveTransferables);
@@ -292,6 +310,7 @@ class IsolateManagerMessagePortController<R, P>
   Future<void> close() async {
     port.close();
     await _streamController.close();
+    if (!_rawController.isClosed) await _rawController.close();
     if (!_closed.isCompleted) _closed.complete();
   }
 

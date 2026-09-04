@@ -90,12 +90,20 @@ class IsolateBridge<R, P> {
   /// [enableWasmTransferables] controls whether `transferables` passed to
   /// [send] are forwarded in WASM builds. Disabled by default because most
   /// WASM targets do not yet support structured-clone transfer.
+  ///
+  /// [initialTransferables] are transferred alongside [initialParams] in the
+  /// very first `postMessage` (web Worker/SharedWorker only). Use this to
+  /// hand the spawned worker a live [MessagePort] — e.g. one half of a
+  /// `MessageChannel` created by the caller — as part of its initial
+  /// handshake, rather than a value that has to be posted separately after
+  /// spawn.
   static Future<IsolateBridge<R, P>> spawn<R, P>(
     IsolateBridgeFunction function, {
     String? workerName,
     bool sharedWorker = false,
     String? sharedWorkerName,
     Object? initialParams,
+    List<Object>? initialTransferables,
     String debugName = 'bridge',
     IsolateConverter<R>? converter,
     IsolateConverter<R>? workerConverter,
@@ -109,6 +117,7 @@ class IsolateBridge<R, P> {
       sharedWorker: sharedWorker,
       sharedWorkerName: sharedWorkerName,
       initialParams: initialParams,
+      initialTransferables: initialTransferables,
       debugName: debugName,
       converter:
           (value) => converterHelper(

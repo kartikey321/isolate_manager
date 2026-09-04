@@ -127,6 +127,14 @@ class IsolateBridgeSharedWorkerController<R, P> {
   /// Stream of messages sent by the main isolate (this tab's port).
   Stream<P> get messages => _delegate.onIsolateMessage;
 
+  /// Every raw [MessageEvent] received on this tab's port, including control
+  /// messages and *before* [messages]' normalization.
+  ///
+  /// Use this when a message may carry a transferred [MessagePort] alongside
+  /// its data (e.g. a leader-election handoff) — `event.data` never carries
+  /// one; it's on `event.ports`.
+  Stream<MessageEvent> get rawMessages => _delegate.rawMessages;
+
   /// Completes when this tab disconnects from the SharedWorker.
   ///
   /// A shared service should use this to drop tab-scoped subscriptions; it

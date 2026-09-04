@@ -290,13 +290,15 @@ void main() {
       'does not miss an immediate post-init crash during spawn handoff',
       () async {
         for (var i = 0; i < 100; i++) {
-          final bridge =
-              await IsolateBridge.spawn<Object?, Object?>(
-                _postInitImmediateCrashWorker,
-              ).timeout(const Duration(seconds: 2));
+          final bridge = await IsolateBridge.spawn<Object?, Object?>(
+            _postInitImmediateCrashWorker,
+          ).timeout(const Duration(seconds: 2));
           await expectLater(
             bridge.stream,
-            emitsInOrder(<dynamic>[emitsError(isA<IsolateException>()), emitsDone]),
+            emitsInOrder(<dynamic>[
+              emitsError(isA<IsolateException>()),
+              emitsDone,
+            ]),
           ).timeout(const Duration(seconds: 2));
         }
       },

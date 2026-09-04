@@ -121,7 +121,8 @@ class IsolateContactorControllerImpl<R, P>
     if (_isClosed) return;
     _isClosed = true;
     if (!_mainStreamController.isClosed) await _mainStreamController.close();
-    if (!_isolateStreamController.isClosed) await _isolateStreamController.close();
+    if (!_isolateStreamController.isClosed)
+      await _isolateStreamController.close();
     try {
       await _delegate.sink.close();
       // Catch any platform error if the sink was already torn down.

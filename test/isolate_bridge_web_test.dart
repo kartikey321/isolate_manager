@@ -2,10 +2,12 @@
 library;
 
 import 'dart:async';
+import 'dart:js_interop';
 import 'dart:typed_data';
 
 import 'package:isolate_manager/isolate_manager.dart';
 import 'package:test/test.dart';
+import 'package:web/web.dart';
 
 // ---------------------------------------------------------------------------
 // Worker-side functions
@@ -383,5 +385,92 @@ void main() {
       );
       expect(echo['value'], 'still-live');
     });
+  });
+
+  group('IsolateBridge (MessagePort transfer)', () {
+    // These prove the two halves a LiveStore-style SharedWorker proxy needs:
+    // (1) a MessagePort sent as an ONGOING message (via send(transferables:))
+    //     can be picked out of event.ports on the receiving worker's
+    //     rawMessages stream, and (2) a MessagePort sent as part of the
+    //     INITIAL handshake (via initialTransferables) arrives at the spawned
+    //     worker's very first event.ports, before any application message.
+    test(
+      'a port sent via send(transferables:) is usable by the SharedWorker',
+      () async {
+        final name = 'bridge-shared-${DateTime.now().microsecondsSinceEpoch}';
+        final bridge = await IsolateBridge.spawn<Map<String, Object?>, Object?>(
+          _unused,
+          workerName: 'workers/bridge_shared_echo',
+          sharedWorker: true,
+          sharedWorkerName: name,
+        ).timeout(const Duration(seconds: 10));
+        addTearDown(bridge.close);
+        await bridge.stream.first; // 'connected'
+
+        final channel = MessageChannel();
+        final replyCompleter = Completer<Object?>();
+        channel.port1.start();
+        channel.port1.onmessage =
+            ((MessageEvent event) {
+              if (!replyCompleter.isCompleted) {
+                replyCompleter.complete(event.data.dartify());
+              }
+            }).toJS;
+
+        bridge.send(
+          <String, Object?>{'type': 'handoff'},
+          transferables: [channel.port2],
+        );
+
+        channel.port1.postMessage(<String, Object?>{'ping': true}.jsify());
+
+        final reply =
+            (await replyCompleter.future.timeout(const Duration(seconds: 10)))!
+                as Map<dynamic, dynamic>;
+        expect(reply['type'], 'handoffEcho');
+        expect((reply['value']! as Map<dynamic, dynamic>)['ping'], isTrue);
+      },
+    );
+
+    test(
+      "a port sent via spawn(initialTransferables:) arrives at the worker's first event.ports",
+      () async {
+        final channel = MessageChannel();
+        final replyCompleter = Completer<Object?>();
+        channel.port1.start();
+        channel.port1.onmessage =
+            ((MessageEvent event) {
+              if (!replyCompleter.isCompleted) {
+                replyCompleter.complete(event.data.dartify());
+              }
+            }).toJS;
+
+        final bridge = await IsolateBridge.spawn<Map<String, Object?>, Object?>(
+          _unused,
+          workerName: 'workers/port_handoff',
+          initialParams: <String, Object?>{'hello': 'leader'},
+          initialTransferables: [channel.port2],
+        ).timeout(const Duration(seconds: 10));
+        addTearDown(bridge.close);
+
+        final booted = await bridge.stream.first.timeout(
+          const Duration(seconds: 10),
+        );
+        expect(booted['type'], 'booted');
+        expect(booted['receivedPortCount'], 1);
+        expect(
+          (booted['initial']! as Map<dynamic, dynamic>)['hello'],
+          'leader',
+        );
+
+        channel.port1.postMessage(<String, Object?>{'ping': true}.jsify());
+
+        final reply =
+            (await replyCompleter.future.timeout(const Duration(seconds: 10)))!
+                as Map<dynamic, dynamic>;
+        expect(reply['type'], 'handoffEcho');
+        expect((reply['value']! as Map<dynamic, dynamic>)['ping'], isTrue);
+      },
+    );
   });
 }

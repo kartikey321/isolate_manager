@@ -69,6 +69,7 @@ class IsolateBridgePlatform<R, P> {
     required IsolateConverter<R> workerConverter,
     required bool enableWasmTransferables,
     required bool isDebug,
+    List<Object>? initialTransferables,
   }) async {
     final receivePort = ReceivePort();
     final errorPort = ReceivePort();
