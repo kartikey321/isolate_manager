@@ -93,6 +93,8 @@ class IsolateBridge<R, P> {
   static Future<IsolateBridge<R, P>> spawn<R, P>(
     IsolateBridgeFunction function, {
     String? workerName,
+    bool sharedWorker = false,
+    String? sharedWorkerName,
     Object? initialParams,
     String debugName = 'bridge',
     IsolateConverter<R>? converter,
@@ -104,6 +106,8 @@ class IsolateBridge<R, P> {
     final delegate = await IsolateBridgePlatform.spawn<R, P>(
       function,
       workerName: normalizePath(workerName) ?? '',
+      sharedWorker: sharedWorker,
+      sharedWorkerName: sharedWorkerName,
       initialParams: initialParams,
       debugName: debugName,
       converter:

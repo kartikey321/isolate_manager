@@ -5,6 +5,7 @@ import 'package:isolate_manager/isolate_manager.dart';
 import 'package:isolate_manager/src/base/isolate_contactor.dart';
 import 'package:isolate_manager/src/models/initial_params_mixin.dart';
 import 'package:isolate_manager/src/utils/check_subtype.dart';
+import 'package:isolate_manager/src/utils/converter.dart' show kIsWasm;
 import 'package:isolate_manager/src/utils/extract_array_buffers.dart';
 import 'package:isolate_manager/src/utils/normalize_worker_message.dart';
 import 'package:web/web.dart';
@@ -178,3 +179,133 @@ class _IsolateManagerWorkerController<R, P>
 }
 
 // coverage:ignore-end
+
+/// Worker-side controller that communicates through a [MessagePort].
+///
+/// Used by [isolateBridgeSharedWorkerMain]: each connecting tab receives its
+/// own [MessagePort] from the SharedWorker `onconnect` event, and each port
+/// gets one independent controller instance backed by that port.
+///
+/// The API is identical to [_IsolateManagerWorkerController] — `postMessage` /
+/// `onmessage` / `close()` exist on both [DedicatedWorkerGlobalScope] and
+/// [MessagePort].
+class IsolateManagerMessagePortController<R, P>
+    implements IsolateContactorController<R, P> {
+  // coverage:ignore-start
+  IsolateManagerMessagePortController(
+    this.port, {
+    this.onDispose,
+    Object? initialParams,
+    bool captureInitialMessageAsParams = false,
+    // When false (default), transferables are silently dropped on WASM builds
+    // because most dart2wasm targets do not yet support structured-clone
+    // transfer. Set to true only if your WASM target is known to support it.
+    this.enableWasmTransferables = false,
+  }) : _initialParams = initialParams,
+
+       _captureInitialMessageAsParams = captureInitialMessageAsParams {
+    port.onmessage =
+        (MessageEvent event) {
+          try {
+            final normalized = normalizeWorkerMessage(event.data.dartify());
+            if (normalized is Map && normalized['type'] == r'$IsolateState') {
+              if (normalized['value'] == 'dispose') {
+                onDispose?.call();
+                // A SharedWorker stays alive after an individual tab leaves.
+                // Closing only the JS port leaks this controller's Dart stream
+                // (and any listeners held by application code) forever.
+                unawaited(close());
+              }
+              return;
+            }
+            if (_captureInitialMessageAsParams && !_didCaptureInitialMessage) {
+              _initialParams = normalized;
+              _didCaptureInitialMessage = true;
+              return;
+            }
+            dynamic result = normalized;
+            if (isImTypeSubtype<P>()) {
+              result = ImType.wrap(result as Object);
+            }
+            _streamController.sink.add(result);
+          } catch (error, stackTrace) {
+            print(
+              '[IsolateManagerMessagePortController] onmessage error '
+              'data=${event.data} error=$error stack=$stackTrace',
+            );
+            rethrow;
+          }
+        }.toJS;
+  }
+
+  final MessagePort port;
+  final void Function()? onDispose;
+
+  /// Controls whether [transferables] passed to [sendResult] are forwarded on
+  /// WASM builds. Disabled by default.
+  final bool enableWasmTransferables;
+  Object? _initialParams;
+
+  final bool _captureInitialMessageAsParams;
+  bool _didCaptureInitialMessage = false;
+  final _streamController = StreamController<dynamic>.broadcast();
+  final Completer<void> _closed = Completer<void>();
+
+  @override
+  Stream<P> get onIsolateMessage => _streamController.stream.cast<P>();
+
+  /// Completes once this client port has been disposed or closed.
+  Future<void> get done => _closed.future;
+
+  @override
+  Object? get initialParams => _initialParams;
+
+  @override
+  void sendResult(R m, {List<Object>? transferables}) {
+    final value = m is ImType ? m.unwrap : m;
+    final payload = <String, Object?>{'type': 'data', 'value': value}.jsify();
+
+    // Drop transferables on WASM unless explicitly opted in — matches the
+    // main-side guard in IsolateBridgePlatform.send().
+    final effectiveTransferables =
+        (!enableWasmTransferables && kIsWasm) ? null : transferables;
+
+    if (effectiveTransferables != null && effectiveTransferables.isNotEmpty) {
+      final jsTransferables = extractArrayBuffers(effectiveTransferables);
+      port.postMessage(payload, jsTransferables);
+    } else {
+      port.postMessage(payload);
+    }
+  }
+
+  @override
+  void sendResultError(IsolateException exception) {
+    port.postMessage(exception.toMap().jsify());
+  }
+
+  @override
+  void initialized() {
+    port.postMessage(IsolateState.initialized.toMap().jsify());
+  }
+
+  @override
+  Future<void> close() async {
+    port.close();
+    await _streamController.close();
+    if (!_closed.isCompleted) _closed.complete();
+  }
+
+  @override
+  Completer<void> get ensureInitialized => throw UnimplementedError();
+
+  @override
+  Stream<R> get onMessage => throw UnimplementedError();
+
+  @override
+  void sendIsolate(dynamic message, {List<Object>? transferables}) =>
+      throw UnimplementedError();
+
+  @override
+  void sendIsolateState(IsolateState state) => throw UnimplementedError();
+  // coverage:ignore-end
+}

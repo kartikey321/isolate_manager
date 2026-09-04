@@ -38,7 +38,9 @@ void _sameThreadDisposeObserver(dynamic params) {
 void main() {
   group('IsolateBridge (web same-thread fallback)', () {
     test('sends and receives messages', () async {
-      final bridge = await IsolateBridge.spawn<Object?, Object?>(_sameThreadEcho);
+      final bridge = await IsolateBridge.spawn<Object?, Object?>(
+        _sameThreadEcho,
+      );
       addTearDown(bridge.close);
 
       bridge.send('hello');
@@ -46,7 +48,9 @@ void main() {
     });
 
     test('stream emits done after close', () async {
-      final bridge = await IsolateBridge.spawn<Object?, Object?>(_sameThreadEcho);
+      final bridge = await IsolateBridge.spawn<Object?, Object?>(
+        _sameThreadEcho,
+      );
 
       final done = Completer<void>();
       bridge.stream.listen((_) {}, onDone: done.complete);
@@ -60,8 +64,9 @@ void main() {
       var disposeCalled = false;
       _disposeCallback = () => disposeCalled = true;
 
-      final bridge =
-          await IsolateBridge.spawn<Object?, Object?>(_sameThreadDisposeObserver);
+      final bridge = await IsolateBridge.spawn<Object?, Object?>(
+        _sameThreadDisposeObserver,
+      );
 
       await bridge.close();
 
@@ -69,7 +74,9 @@ void main() {
     });
 
     test('close is idempotent on same-thread path', () async {
-      final bridge = await IsolateBridge.spawn<Object?, Object?>(_sameThreadEcho);
+      final bridge = await IsolateBridge.spawn<Object?, Object?>(
+        _sameThreadEcho,
+      );
       await Future.wait([bridge.close(), bridge.close()]);
       await bridge.close();
     });
@@ -110,12 +117,13 @@ void main() {
     });
 
     test('preserves nested bytes through compiled-worker transfers', () async {
-      final bridge = await IsolateBridge.spawn<
-        Map<String, Object?>,
-        Map<String, Object?>
-      >(_unused, workerName: 'workers/bridge_dart_echo').timeout(
-        const Duration(seconds: 10),
-      );
+      final bridge =
+          await IsolateBridge.spawn<Map<String, Object?>, Map<String, Object?>>(
+            _unused,
+            workerName: 'workers/bridge_dart_echo',
+          ).timeout(
+            const Duration(seconds: 10),
+          );
       addTearDown(bridge.close);
 
       final bytes = Uint8List.fromList(<int>[1, 2, 3, 250]);
@@ -130,24 +138,27 @@ void main() {
       expect(result['bytes'], <int>[1, 2, 3, 250]);
     });
 
-    test('dispose message does not crash the worker (cast-to-P bug fix)', () async {
-      final bridge = await IsolateBridge.spawn<Object?, Object?>(
-        _unused,
-        workerName: 'workers/bridge_dart_echo',
-      ).timeout(const Duration(seconds: 10));
+    test(
+      'dispose message does not crash the worker (cast-to-P bug fix)',
+      () async {
+        final bridge = await IsolateBridge.spawn<Object?, Object?>(
+          _unused,
+          workerName: 'workers/bridge_dart_echo',
+        ).timeout(const Duration(seconds: 10));
 
-      bridge.send('ping');
-      await expectLater(bridge.stream, emits('ping'));
+        bridge.send('ping');
+        await expectLater(bridge.stream, emits('ping'));
 
-      // close() sends a dispose IsolateState message. Before the fix, the
-      // worker's onmessage handler passed the Map to stream.cast<P>(), crashing
-      // the worker. After the fix it is intercepted and the worker shuts down
-      // gracefully.
-      final done = Completer<void>();
-      bridge.stream.listen((_) {}, onDone: done.complete);
-      await bridge.close();
-      await done.future.timeout(const Duration(seconds: 5));
-    });
+        // close() sends a dispose IsolateState message. Before the fix, the
+        // worker's onmessage handler passed the Map to stream.cast<P>(), crashing
+        // the worker. After the fix it is intercepted and the worker shuts down
+        // gracefully.
+        final done = Completer<void>();
+        bridge.stream.listen((_) {}, onDone: done.complete);
+        await bridge.close();
+        await done.future.timeout(const Duration(seconds: 5));
+      },
+    );
   });
 
   group('IsolateBridge (web Worker)', () {
@@ -282,29 +293,95 @@ void main() {
         bridge.send('trigger');
 
         // After the error the stream must also close (shutdown is triggered).
-      await expectLater(
-        bridge.stream,
-        emitsInOrder(<dynamic>[emitsError(anything), emitsDone]),
-      );
-    },
-  );
+        await expectLater(
+          bridge.stream,
+          emitsInOrder(<dynamic>[emitsError(anything), emitsDone]),
+        );
+      },
+    );
 
     test(
       'does not miss an immediate post-init Worker crash during spawn handoff',
       () async {
         for (var i = 0; i < 50; i++) {
-          final bridge =
-              await IsolateBridge.spawn<Object?, Object?>(
-                _unused,
-                workerName: 'workers/bridge_exit_after_init',
-              ).timeout(const Duration(seconds: 2));
+          final bridge = await IsolateBridge.spawn<Object?, Object?>(
+            _unused,
+            workerName: 'workers/bridge_exit_after_init',
+          ).timeout(const Duration(seconds: 2));
 
           await expectLater(
             bridge.stream,
-            emitsInOrder(<dynamic>[emitsError(isA<IsolateException>()), emitsDone]),
+            emitsInOrder(<dynamic>[
+              emitsError(isA<IsolateException>()),
+              emitsDone,
+            ]),
           ).timeout(const Duration(seconds: 2));
         }
       },
     );
+  });
+
+  group('IsolateBridge (SharedWorker)', () {
+    test(
+      'shares one worker global while keeping MessagePorts isolated',
+      () async {
+        final name = 'bridge-shared-${DateTime.now().microsecondsSinceEpoch}';
+        final first = await IsolateBridge.spawn<Map<String, Object?>, Object?>(
+          _unused,
+          workerName: 'workers/bridge_shared_echo',
+          sharedWorker: true,
+          sharedWorkerName: name,
+          initialParams: <String, Object?>{'tab': 'one'},
+        ).timeout(const Duration(seconds: 10));
+        addTearDown(first.close);
+
+        final second = await IsolateBridge.spawn<Map<String, Object?>, Object?>(
+          _unused,
+          workerName: 'workers/bridge_shared_echo',
+          sharedWorker: true,
+          sharedWorkerName: name,
+          initialParams: <String, Object?>{'tab': 'two'},
+        ).timeout(const Duration(seconds: 10));
+        addTearDown(second.close);
+
+        expect((await first.stream.first)['connections'], 1);
+        expect((await second.stream.first)['connections'], 2);
+
+        first.send('only-first');
+        second.send('only-second');
+        final firstEcho = await first.stream.first;
+        final secondEcho = await second.stream.first;
+        expect(firstEcho['value'], 'only-first');
+        expect(secondEcho['value'], 'only-second');
+        expect(firstEcho['connections'], 2);
+        expect(secondEcho['connections'], 2);
+      },
+    );
+
+    test('closing one port does not stop the remaining client', () async {
+      final name = 'bridge-shared-${DateTime.now().microsecondsSinceEpoch}';
+      final first = await IsolateBridge.spawn<Map<String, Object?>, Object?>(
+        _unused,
+        workerName: 'workers/bridge_shared_echo',
+        sharedWorker: true,
+        sharedWorkerName: name,
+      );
+      final second = await IsolateBridge.spawn<Map<String, Object?>, Object?>(
+        _unused,
+        workerName: 'workers/bridge_shared_echo',
+        sharedWorker: true,
+        sharedWorkerName: name,
+      );
+      addTearDown(second.close);
+      await first.stream.first;
+      await second.stream.first;
+      await first.close();
+
+      second.send('still-live');
+      final echo = await second.stream.first.timeout(
+        const Duration(seconds: 5),
+      );
+      expect(echo['value'], 'still-live');
+    });
   });
 }

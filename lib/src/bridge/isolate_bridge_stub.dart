@@ -61,6 +61,8 @@ class IsolateBridgePlatform<R, P> {
   static Future<IsolateBridgePlatform<R, P>> spawn<R, P>(
     IsolateBridgeFunction function, {
     required String workerName,
+    required bool sharedWorker,
+    required String? sharedWorkerName,
     required Object? initialParams,
     required String debugName,
     required IsolateConverter<R> converter,

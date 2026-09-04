@@ -9,10 +9,11 @@ import 'package:isolate_manager/src/utils/extract_array_buffers.dart';
 import 'package:isolate_manager/src/utils/print.dart';
 import 'package:web/web.dart';
 
-/// Implementation using [Worker] as the communication channel.
+/// Implementation using [Worker] or [MessagePort] as the communication channel.
 class IsolateContactorControllerImplWorker<R, P>
     implements IsolateContactorControllerImpl<R, P> {
-  /// Implementation of the [IsolateContactorController] in `web` with `Worker`.
+  /// Implementation of the [IsolateContactorController] in `web` with `Worker`
+  /// or a SharedWorker [MessagePort].
   IsolateContactorControllerImplWorker(
     dynamic params, {
     required void Function()? onDispose,
@@ -24,14 +25,16 @@ class IsolateContactorControllerImplWorker<R, P>
        _delegate =
            params is List
                ? (params.last as IsolateContactorControllerImpl).controller
-                   as Worker
                : params as Worker,
        _initialParams = params is List ? params.first : null,
        _mainStreamController = StreamController<R>.broadcast() {
-    _delegate.onmessage = _handleMessage.toJS;
+    _setOnMessage(_handleMessage.toJS);
+    if ((_delegate as JSObject).isA<MessagePort>()) {
+      (_delegate as MessagePort).start();
+    }
   }
 
-  final Worker _delegate;
+  final Object _delegate;
   final void Function()? _onDispose;
   final IsolateConverter<R> _workerConverter;
   final dynamic _initialParams;
@@ -42,7 +45,7 @@ class IsolateContactorControllerImplWorker<R, P>
   final Completer<void> ensureInitialized = Completer<void>();
 
   @override
-  Worker get controller => _delegate;
+  Object get controller => _delegate;
 
   @override
   dynamic get initialParams => _initialParams;
@@ -57,15 +60,15 @@ class IsolateContactorControllerImplWorker<R, P>
 
     if (transferables != null && transferables.isNotEmpty) {
       final jsTransferables = extractArrayBuffers(transferables);
-      _delegate.postMessage(jsMessage, jsTransferables);
+      _postMessage(jsMessage, jsTransferables);
     } else {
-      _delegate.postMessage(jsMessage);
+      _postMessage(jsMessage);
     }
   }
 
   @override
   void sendIsolateState(IsolateState state) {
-    _delegate.postMessage(state.toMap().jsify());
+    _postMessage(state.toMap().jsify());
   }
 
   // TODO(lamnhan066): Find a way to test these methods because it only used by the compiled JS Worker.
@@ -89,8 +92,47 @@ class IsolateContactorControllerImplWorker<R, P>
 
   @override
   Future<void> close() async {
-    _delegate.terminate();
+    final delegate = _delegate as JSObject;
+    if (delegate.isA<Worker>()) {
+      (delegate as Worker).terminate();
+    } else if (delegate.isA<MessagePort>()) {
+      (delegate as MessagePort).close();
+    }
     await _mainStreamController.close();
+  }
+
+  void _setOnMessage(EventHandler handler) {
+    final delegate = _delegate as JSObject;
+    if (delegate.isA<Worker>()) {
+      (delegate as Worker).onmessage = handler;
+    } else if (delegate.isA<MessagePort>()) {
+      (delegate as MessagePort).onmessage = handler;
+    } else {
+      throw UnsupportedError(
+        'Unsupported web contactor delegate: ${delegate.runtimeType}',
+      );
+    }
+  }
+
+  void _postMessage(JSAny? message, [JSObject? transfer]) {
+    final delegate = _delegate as JSObject;
+    if (delegate.isA<Worker>()) {
+      if (transfer == null) {
+        (delegate as Worker).postMessage(message);
+      } else {
+        (delegate as Worker).postMessage(message, transfer);
+      }
+    } else if (delegate.isA<MessagePort>()) {
+      if (transfer == null) {
+        (delegate as MessagePort).postMessage(message);
+      } else {
+        (delegate as MessagePort).postMessage(message, transfer);
+      }
+    } else {
+      throw UnsupportedError(
+        'Unsupported web contactor delegate: ${delegate.runtimeType}',
+      );
+    }
   }
 
   /// Centralizes the event processing for the incoming worker messages.

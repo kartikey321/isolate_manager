@@ -57,6 +57,8 @@ class IsolateBridgePlatform<R, P> {
   static Future<IsolateBridgePlatform<R, P>> spawn<R, P>(
     IsolateBridgeFunction function, {
     required String workerName,
+    required bool sharedWorker,
+    required String? sharedWorkerName,
     required Object? initialParams,
     required String debugName,
     required IsolateConverter<R> converter,
@@ -67,7 +69,8 @@ class IsolateBridgePlatform<R, P> {
     late final IsolateContactorControllerImpl<R, P> controller;
 
     if (workerName.isNotEmpty) {
-      final worker = Worker('$workerName.js'.toJS);
+      // ── Declare all locals first so the onerror closures below can capture
+      // them even though the closures fire asynchronously after spawn.
       final pendingStreamActions = <void Function()>[];
       late final StreamController<R> streamController;
       void dispatchOrBuffer(void Function() action) {
@@ -79,7 +82,8 @@ class IsolateBridgePlatform<R, P> {
       }
 
       void flushPendingStreamActions() {
-        if (!streamController.hasListener || pendingStreamActions.isEmpty) return;
+        if (!streamController.hasListener || pendingStreamActions.isEmpty)
+          return;
         final actions = List<void Function()>.from(pendingStreamActions);
         pendingStreamActions.clear();
         for (final action in actions) {
@@ -104,34 +108,77 @@ class IsolateBridgePlatform<R, P> {
             if (streamController.hasListener) {
               await streamController.close();
             } else {
-              pendingStreamActions.add(() => unawaited(streamController.close()));
+              pendingStreamActions.add(
+                () => unawaited(streamController.close()),
+              );
             }
           }
           await controller.close();
         }();
       }
 
-      // Race the init handshake against a Worker script error so that a
-      // crash during startup fails fast instead of hanging forever (B1 fix).
-      worker.onerror = ((ErrorEvent e) {
-        final detail =
-            'message=${e.message} '
-            'filename=${e.filename} '
-            'lineno=${e.lineno} '
-            'colno=${e.colno}';
-        if (!workerInitError.isCompleted) {
-          workerInitError.completeError(
-            IsolateException('Worker failed to start: $detail'),
-          );
-        }
-        if (initPhaseComplete && !streamController.isClosed) {
-          streamController.addError(IsolateException('Worker error: $detail'));
-        }
-        unawaited(shutdown());
-      }).toJS;
+      // ── Resolve the underlying message target ──────────────────────────────
+      // For a SharedWorker we communicate through its MessagePort; for a
+      // dedicated Worker we talk to the Worker object directly.
+      // onerror is wired here so it can reference the locals above.
+      final Object messageTarget;
+      if (sharedWorker) {
+        // A name is part of a SharedWorker's identity. Callers that need
+        // separate shared services (for example, different authenticated
+        // storage scopes) must provide one explicitly rather than relying on
+        // the script URL alone.
+        final sw =
+            sharedWorkerName == null
+                ? SharedWorker('$workerName.js'.toJS)
+                : SharedWorker('$workerName.js'.toJS, sharedWorkerName.toJS);
+        final port = sw.port..start();
+        messageTarget = port;
+
+        sw.onerror =
+            ((ErrorEvent e) {
+              final detail =
+                  'message=${e.message} '
+                  'filename=${e.filename} '
+                  'lineno=${e.lineno} '
+                  'colno=${e.colno}';
+              if (!workerInitError.isCompleted) {
+                workerInitError.completeError(
+                  IsolateException('SharedWorker failed to start: $detail'),
+                );
+              }
+              if (initPhaseComplete && !streamController.isClosed) {
+                streamController.addError(
+                  IsolateException('SharedWorker error: $detail'),
+                );
+              }
+              unawaited(shutdown());
+            }).toJS;
+      } else {
+        final worker = Worker('$workerName.js'.toJS);
+        messageTarget = worker;
+        worker.onerror =
+            ((ErrorEvent e) {
+              final detail =
+                  'message=${e.message} '
+                  'filename=${e.filename} '
+                  'lineno=${e.lineno} '
+                  'colno=${e.colno}';
+              if (!workerInitError.isCompleted) {
+                workerInitError.completeError(
+                  IsolateException('Worker failed to start: $detail'),
+                );
+              }
+              if (initPhaseComplete && !streamController.isClosed) {
+                streamController.addError(
+                  IsolateException('Worker error: $detail'),
+                );
+              }
+              unawaited(shutdown());
+            }).toJS;
+      }
 
       controller = IsolateContactorControllerImpl<R, P>(
-        worker,
+        messageTarget,
         onDispose: null,
         converter: converter,
         workerConverter: workerConverter,
@@ -139,29 +186,43 @@ class IsolateBridgePlatform<R, P> {
       );
 
       platform = IsolateBridgePlatform<R, P>._(
-        controller: controller,
-        enableWasmTransferables: enableWasmTransferables,
-        streamController: streamController,
-      )
-
-      // Forward all Worker messages (including errors) to our stream before we
+          controller: controller,
+          enableWasmTransferables: enableWasmTransferables,
+          streamController: streamController,
+        )
+        // Forward all Worker messages (including errors) to our stream before we
         // await initialization so a post-init immediate crash cannot be missed.
-      .._forwardSubscription = controller.onMessage.listen(
-        (event) {
-          if (!streamController.isClosed) {
-            dispatchOrBuffer(() => streamController.add(event));
-          }
-        },
-        onError: (Object e, StackTrace st) {
-          if (!streamController.isClosed) {
-            dispatchOrBuffer(() => streamController.addError(e, st));
-          }
-        },
-        onDone: () => unawaited(shutdown()),
-      );
+        .._forwardSubscription = controller.onMessage.listen(
+          (event) {
+            if (!streamController.isClosed) {
+              dispatchOrBuffer(() => streamController.add(event));
+            }
+          },
+          onError: (Object e, StackTrace st) {
+            // A SharedWorker can reject a client-specific handshake without
+            // throwing a global Worker error. Treat a worker-sent error before
+            // initialized() as a spawn failure so callers never wait forever.
+            if (!initPhaseComplete && !workerInitError.isCompleted) {
+              workerInitError.completeError(e, st);
+            }
+            if (!streamController.isClosed) {
+              dispatchOrBuffer(() => streamController.addError(e, st));
+            }
+          },
+          onDone: () => unawaited(shutdown()),
+        );
 
       try {
-        worker.postMessage(initialParams.jsify());
+        // Send initial params through the resolved message target.
+        // For SharedWorker this goes through the MessagePort; for dedicated
+        // Worker it goes directly to the worker object.
+        final target = messageTarget as JSObject;
+        if (target.isA<MessagePort>()) {
+          (target as MessagePort).postMessage(initialParams.jsify());
+        } else {
+          (target as Worker).postMessage(initialParams.jsify());
+        }
+
         await Future.any<void>([
           controller.ensureInitialized.future,
           workerInitError.future,
