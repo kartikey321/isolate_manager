@@ -96,7 +96,10 @@ class IsolateBridge<R, P> {
   /// hand the spawned worker a live [MessagePort] — e.g. one half of a
   /// `MessageChannel` created by the caller — as part of its initial
   /// handshake, rather than a value that has to be posted separately after
-  /// spawn.
+  /// spawn. Subject to the same [enableWasmTransferables] guard as [send]: a
+  /// [MessagePort] is always transferred regardless of platform, but a
+  /// buffer-like entry (`ByteBuffer`/`Uint8List`) is dropped on WASM unless
+  /// [enableWasmTransferables] is set.
   static Future<IsolateBridge<R, P>> spawn<R, P>(
     IsolateBridgeFunction function, {
     String? workerName,

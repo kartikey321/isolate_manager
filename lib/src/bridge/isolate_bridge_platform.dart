@@ -225,7 +225,12 @@ class IsolateBridgePlatform<R, P> {
         // first message, rather than posted separately after spawn.
         final target = messageTarget as JSObject;
         final jsInitialTransferables = extractArrayBuffers(
-          initialTransferables ?? const [],
+          filterTransferablesForWasm(
+                initialTransferables,
+                allowBuffers: enableWasmTransferables,
+                isWasm: kIsWasm,
+              ) ??
+              const [],
         );
         if (target.isA<MessagePort>()) {
           (target as MessagePort).postMessage(
