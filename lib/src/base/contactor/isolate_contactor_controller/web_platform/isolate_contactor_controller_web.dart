@@ -160,13 +160,7 @@ class IsolateContactorControllerImplFuture<R, P>
     );
     switch (value) {
       case == IsolateState.dispose:
-        // Guard against a throwing onDispose — if it throws, close() would
-        // never be called and any caller waiting for stream-done would hang.
-        try {
-          _onDispose?.call();
-          // Catch both Error and Exception from user-supplied onDispose.
-          // ignore: avoid_catches_without_on_clauses
-        } catch (_) {}
+        _onDispose?.call();
         await close();
       default:
         try {
