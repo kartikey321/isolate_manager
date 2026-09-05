@@ -7,6 +7,12 @@ import 'package:isolate_manager/isolate_manager.dart';
 import 'package:test/test.dart';
 
 void main() {
+  group('isSharedWorkerSupported (browser)', () {
+    test('is true in a real browser', () {
+      expect(isSharedWorkerSupported, isTrue);
+    });
+  });
+
   group('WebLock (browser)', () {
     test('isSupported is true in a real browser', () {
       expect(WebLock.isSupported, isTrue);
