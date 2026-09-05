@@ -2,6 +2,7 @@ import 'dart:typed_data';
 
 import 'package:isolate_manager/isolate_manager.dart';
 import 'package:isolate_manager/src/utils/check_subtype.dart';
+import 'package:isolate_manager/src/utils/normalize_worker_message.dart';
 
 /// A constant that is true if the application was compiled to WebAssembly.
 const bool kIsWasm = bool.fromEnvironment('dart.tool.dart2wasm');
@@ -13,6 +14,12 @@ R converterHelper<R>(
   bool enableWasmConverter = true,
 }) {
   dynamic effectiveValue = value;
+  if (customConverter == null &&
+      effectiveValue is Map &&
+      isSubtype<R, Map<String, Object?>>()) {
+    effectiveValue = normalizeWorkerMessage(effectiveValue);
+  }
+
   // coverage:ignore-start
   if (enableWasmConverter && kIsWasm) {
     if (isSubtype<R, Uint8List>()) {

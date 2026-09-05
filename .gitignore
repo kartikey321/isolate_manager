@@ -33,3 +33,5 @@ coverage/
 .fvm/
 
 .vscode/
+# macOS
+.DS_Store

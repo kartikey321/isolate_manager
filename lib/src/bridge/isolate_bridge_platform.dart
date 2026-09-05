@@ -1,0 +1,343 @@
+// Platform implementations are internal and mirror a shared public surface.
+// ignore_for_file: public_member_api_docs
+
+import 'dart:async';
+import 'dart:js_interop';
+
+import 'package:isolate_manager/src/base/contactor/isolate_contactor_controller/isolate_contactor_controller_web.dart';
+import 'package:isolate_manager/src/base/isolate_contactor.dart';
+import 'package:isolate_manager/src/bridge/isolate_bridge.dart';
+import 'package:isolate_manager/src/utils/converter.dart';
+import 'package:isolate_manager/src/utils/extract_array_buffers.dart';
+import 'package:web/web.dart';
+
+/// Web implementation of [IsolateBridge].
+///
+/// Worker path: wraps a JS Worker and owns a broadcast [_streamController].
+/// Same-thread path: no worker; stream comes directly from the controller.
+class IsolateBridgePlatform<R, P> {
+  IsolateBridgePlatform._({
+    required IsolateContactorControllerImpl<R, P> controller,
+    required bool enableWasmTransferables,
+    StreamController<R>? streamController,
+  }) : _controller = controller,
+       _enableWasmTransferables = enableWasmTransferables,
+       _streamController = streamController;
+
+  final IsolateContactorControllerImpl<R, P> _controller;
+  final bool _enableWasmTransferables;
+  // Non-null only for the JS Worker path — used to surface post-init onerror.
+  final StreamController<R>? _streamController;
+  StreamSubscription<R>? _forwardSubscription;
+
+  bool _isClosed = false;
+  // Cached so every exit signal (onerror, channel onDone, explicit close)
+  // awaits the same single cleanup run.
+  Future<void>? _shutdownFuture;
+
+  Stream<R> get stream => _streamController?.stream ?? _controller.onMessage;
+
+  Future<void> get ensureInitialized => _controller.ensureInitialized.future;
+
+  // Worker path only. Sets _isClosed synchronously so send() is blocked
+  // the instant any exit signal fires.
+  Future<void> _shutdown() {
+    _isClosed = true;
+    return _shutdownFuture ??= _doShutdown();
+  }
+
+  Future<void> _doShutdown() async {
+    // Cancel forwarding first so the onDone callback does not re-enter.
+    await _forwardSubscription?.cancel();
+    _forwardSubscription = null;
+    final sc = _streamController;
+    if (sc != null && !sc.isClosed) await sc.close();
+    await _controller.close();
+  }
+
+  static Future<IsolateBridgePlatform<R, P>> spawn<R, P>(
+    IsolateBridgeFunction function, {
+    required String workerName,
+    required bool sharedWorker,
+    required String? sharedWorkerName,
+    required Object? initialParams,
+    required String debugName,
+    required IsolateConverter<R> converter,
+    required IsolateConverter<R> workerConverter,
+    required bool enableWasmTransferables,
+    required bool isDebug,
+    List<Object>? initialTransferables,
+  }) async {
+    late final IsolateContactorControllerImpl<R, P> controller;
+
+    if (workerName.isNotEmpty) {
+      // ── Declare all locals first so the onerror closures below can capture
+      // them even though the closures fire asynchronously after spawn.
+      final pendingStreamActions = <void Function()>[];
+      late final StreamController<R> streamController;
+      void dispatchOrBuffer(void Function() action) {
+        if (streamController.hasListener) {
+          action();
+        } else {
+          pendingStreamActions.add(action);
+        }
+      }
+
+      void flushPendingStreamActions() {
+        if (!streamController.hasListener || pendingStreamActions.isEmpty)
+          return;
+        final actions = List<void Function()>.from(pendingStreamActions);
+        pendingStreamActions.clear();
+        for (final action in actions) {
+          action();
+        }
+      }
+
+      streamController = StreamController<R>.broadcast(
+        onListen: flushPendingStreamActions,
+      );
+      final workerInitError = Completer<void>();
+      Future<void>? shutdownFuture;
+      var initPhaseComplete = false;
+
+      late final IsolateBridgePlatform<R, P> platform;
+      Future<void> shutdown() {
+        return shutdownFuture ??= () async {
+          platform._isClosed = true;
+          await platform._forwardSubscription?.cancel();
+          platform._forwardSubscription = null;
+          if (!streamController.isClosed) {
+            if (streamController.hasListener) {
+              await streamController.close();
+            } else {
+              pendingStreamActions.add(
+                () => unawaited(streamController.close()),
+              );
+            }
+          }
+          await controller.close();
+        }();
+      }
+
+      // ── Resolve the underlying message target ──────────────────────────────
+      // For a SharedWorker we communicate through its MessagePort; for a
+      // dedicated Worker we talk to the Worker object directly.
+      // onerror is wired here so it can reference the locals above.
+      final Object messageTarget;
+      if (sharedWorker) {
+        // A name is part of a SharedWorker's identity. Callers that need
+        // separate shared services (for example, different authenticated
+        // storage scopes) must provide one explicitly rather than relying on
+        // the script URL alone.
+        final sw =
+            sharedWorkerName == null
+                ? SharedWorker('$workerName.js'.toJS)
+                : SharedWorker('$workerName.js'.toJS, sharedWorkerName.toJS);
+        final port = sw.port..start();
+        messageTarget = port;
+
+        sw.onerror =
+            ((ErrorEvent e) {
+              final detail =
+                  'message=${e.message} '
+                  'filename=${e.filename} '
+                  'lineno=${e.lineno} '
+                  'colno=${e.colno}';
+              if (!workerInitError.isCompleted) {
+                workerInitError.completeError(
+                  IsolateException('SharedWorker failed to start: $detail'),
+                );
+              }
+              if (initPhaseComplete && !streamController.isClosed) {
+                streamController.addError(
+                  IsolateException('SharedWorker error: $detail'),
+                );
+              }
+              unawaited(shutdown());
+            }).toJS;
+      } else {
+        final worker = Worker('$workerName.js'.toJS);
+        messageTarget = worker;
+        worker.onerror =
+            ((ErrorEvent e) {
+              final detail =
+                  'message=${e.message} '
+                  'filename=${e.filename} '
+                  'lineno=${e.lineno} '
+                  'colno=${e.colno}';
+              if (!workerInitError.isCompleted) {
+                workerInitError.completeError(
+                  IsolateException('Worker failed to start: $detail'),
+                );
+              }
+              if (initPhaseComplete && !streamController.isClosed) {
+                streamController.addError(
+                  IsolateException('Worker error: $detail'),
+                );
+              }
+              unawaited(shutdown());
+            }).toJS;
+      }
+
+      controller = IsolateContactorControllerImpl<R, P>(
+        messageTarget,
+        onDispose: null,
+        converter: converter,
+        workerConverter: workerConverter,
+        debugMode: isDebug,
+      );
+
+      platform = IsolateBridgePlatform<R, P>._(
+          controller: controller,
+          enableWasmTransferables: enableWasmTransferables,
+          streamController: streamController,
+        )
+        // Forward all Worker messages (including errors) to our stream before we
+        // await initialization so a post-init immediate crash cannot be missed.
+        .._forwardSubscription = controller.onMessage.listen(
+          (event) {
+            if (!streamController.isClosed) {
+              dispatchOrBuffer(() => streamController.add(event));
+            }
+          },
+          onError: (Object e, StackTrace st) {
+            // A SharedWorker can reject a client-specific handshake without
+            // throwing a global Worker error. Treat a worker-sent error before
+            // initialized() as a spawn failure so callers never wait forever.
+            if (!initPhaseComplete && !workerInitError.isCompleted) {
+              workerInitError.completeError(e, st);
+            }
+            if (!streamController.isClosed) {
+              dispatchOrBuffer(() => streamController.addError(e, st));
+            }
+          },
+          onDone: () => unawaited(shutdown()),
+        );
+
+      try {
+        // Send initial params through the resolved message target.
+        // For SharedWorker this goes through the MessagePort; for dedicated
+        // Worker it goes directly to the worker object.
+        //
+        // initialTransferables travels alongside initialParams in this same
+        // call — e.g. a raw MessagePort (one half of a MessageChannel the
+        // caller created) handed to the spawned worker as part of its very
+        // first message, rather than posted separately after spawn.
+        final target = messageTarget as JSObject;
+        final jsInitialTransferables = extractArrayBuffers(
+          filterTransferablesForWasm(
+                initialTransferables,
+                allowBuffers: enableWasmTransferables,
+                isWasm: kIsWasm,
+              ) ??
+              const [],
+        );
+        if (target.isA<MessagePort>()) {
+          (target as MessagePort).postMessage(
+            initialParams.jsify(),
+            jsInitialTransferables,
+          );
+        } else {
+          (target as Worker).postMessage(
+            initialParams.jsify(),
+            jsInitialTransferables,
+          );
+        }
+
+        await Future.any<void>([
+          controller.ensureInitialized.future,
+          workerInitError.future,
+        ]);
+      } catch (_) {
+        await shutdown();
+        rethrow;
+      }
+      initPhaseComplete = true;
+
+      return platform;
+    } else {
+      controller = IsolateContactorControllerImpl<R, P>(
+        StreamController<dynamic>.broadcast(),
+        // Must stay null: both the main-side and worker-side controllers share
+        // the same broadcast StreamController, so the dispose signal is
+        // delivered to both. A non-null onDispose would fire on the main side
+        // too (self-dispose).
+        onDispose: null,
+        converter: converter,
+        workerConverter: workerConverter,
+        debugMode: isDebug,
+      );
+
+      try {
+        await function([initialParams, controller]);
+      } catch (error, stackTrace) {
+        await controller.close();
+        throw IsolateException(error, stackTrace);
+      }
+
+      // Fail fast: if the worker returned without calling initialized() we
+      // would hang forever on ensureInitialized.future. Surface it now.
+      if (!controller.ensureInitialized.isCompleted) {
+        await controller.close();
+        throw const IsolateException(
+          'IsolateBridge same-thread worker returned without calling initialized().',
+        );
+      }
+      await controller.ensureInitialized.future;
+
+      return IsolateBridgePlatform<R, P>._(
+        controller: controller,
+        enableWasmTransferables: enableWasmTransferables,
+      );
+    }
+  }
+
+  void send(P message, {List<Object>? transferables}) {
+    if (_isClosed) {
+      throw const IsolateException('The IsolateBridge is already closed.');
+    }
+
+    final effectiveTransferables = filterTransferablesForWasm(
+      transferables,
+      allowBuffers: _enableWasmTransferables,
+      isWasm: kIsWasm,
+    );
+    _controller.sendIsolate(message, transferables: effectiveTransferables);
+  }
+
+  Future<void> close() async {
+    if (_isClosed) return;
+    _isClosed = true;
+
+    if (_streamController != null) {
+      // Worker path: signal the worker then use _shutdown() for cleanup.
+      // _shutdown() is idempotent so concurrent exit signals (onerror,
+      // channel onDone) and this explicit close all share one cleanup run.
+      _controller.sendIsolateState(IsolateState.dispose);
+      await _shutdown();
+    } else {
+      // Same-thread path: the dispose signal causes _handleIsolatePort to
+      // call controller.close() asynchronously. We wait for onMessage to
+      // emit done (proof that close() completed) rather than calling
+      // close() ourselves, which would race with the dispose handler's
+      // async close and could cancel the stream subscription before the
+      // handler finishes.
+      //
+      // Set up the listener BEFORE sending dispose so we never miss the
+      // done event even if the broadcast SC delivers synchronously.
+      final doneCompleter = Completer<void>();
+      final sub = _controller.onMessage.listen(
+        (_) {},
+        onDone: () {
+          if (!doneCompleter.isCompleted) doneCompleter.complete();
+        },
+        // Swallow errors — callers subscribe to stream separately.
+        onError: (Object e, StackTrace s) {},
+        cancelOnError: false,
+      );
+      _controller.sendIsolateState(IsolateState.dispose);
+      await doneCompleter.future;
+      await sub.cancel();
+    }
+  }
+}
